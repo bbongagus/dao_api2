@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Redis - единственный источник правды
+  redis:
+    image: redis:7-alpine
+    container_name: optimistic-redis-clean
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data-clean:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    restart: unless-stopped
+    networks:
+      - optimistic-network-clean
+
+  # Backend - простой WebSocket сервер
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.clean
+    container_name: optimistic-backend-clean
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - optimistic-network-clean
+    volumes:
+      - ./src:/app/src:ro
+
+volumes:
+  redis-data-clean:
+    name: optimistic-redis-data-clean
+
+networks:
+  optimistic-network-clean:
+    name: optimistic-network-clean
+    driver: bridge

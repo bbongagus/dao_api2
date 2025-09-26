@@ -23,7 +23,72 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ===== Graph API Routes =====
+// ===== User API Routes (REST - Figma/Miro style) =====
+
+// Получить информацию о пользователе
+app.get('/api/users/:userId', async (req, res) => {
+  try {
+    res.json({
+      userId: req.params.userId,
+      exists: true,
+      managedBy: 'optimistic-backend',
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить список графов пользователя (REST для загрузки)
+app.get('/api/users/:userId/graphs', async (req, res) => {
+  try {
+    const graphIds = await graphOps.listGraphs(req.params.userId);
+    
+    const graphs = graphIds.map(graphId => ({
+      graphId,
+      name: getGraphDisplayName(graphId),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+    
+    res.json({
+      userId: req.params.userId,
+      graphs
+    });
+  } catch (error) {
+    console.error('Error listing user graphs:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Создать новый граф для пользователя (REST)
+app.post('/api/users/:userId/graphs', async (req, res) => {
+  try {
+    const { graphId, name, viewport } = req.body;
+    
+    const initialData = {
+      nodes: [],
+      edges: [],
+      viewport: viewport || { x: 0, y: 0, zoom: 1 }
+    };
+    
+    const version = await graphOps.saveGraph(graphId, initialData);
+    
+    res.json({
+      success: true,
+      graphId,
+      name: name || getGraphDisplayName(graphId),
+      viewport: initialData.viewport,
+      version,
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error creating user graph:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== Graph API Routes (Hybrid - REST для загрузки, WebSocket для операций) =====
 
 // Получить граф (синхронно из Redis)
 app.get('/api/graphs/:graphId', async (req, res) => {
@@ -262,5 +327,28 @@ process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
   process.exit(0);
 });
+
+// ===== Helper Functions =====
+
+// Получить отображаемое имя графа
+function getGraphDisplayName(graphId) {
+  if (graphId === 'main') return 'Main Graph';
+  if (graphId === 'project1') return 'Project 1';
+  if (graphId === 'ideas') return 'Ideas';
+  
+  // Извлечь имя из ID
+  if (graphId.includes('_graph_')) {
+    const parts = graphId.split('_graph_');
+    const afterGraph = parts[1];
+    
+    if (afterGraph && afterGraph.includes('_')) {
+      const customParts = afterGraph.split('_');
+      if (customParts.length > 1) {
+        return customParts.slice(1).join(' ');
+      }
+    }
+  }
+  return graphId;
+}
 
 export default app;

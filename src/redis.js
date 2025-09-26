@@ -160,5 +160,37 @@ export const graphOps = {
     await this.saveGraph(graphId, graph);
     console.log(`📦 Batch update: ${updatedCount} nodes updated`);
     return { updatedCount, version: await this.getVersion(graphId) };
+  },
+
+  // Получить список всех графов пользователя
+  async listGraphs(userId = '*') {
+    const pattern = userId === '*' ? 'graph:*' : `graph:${userId}:*`;
+    const keys = await redis.keys(pattern);
+    
+    // Извлекаем graphId из ключей и фильтруем версии
+    const graphIds = keys
+      .filter(key => !key.endsWith(':version'))
+      .map(key => key.replace('graph:', ''))
+      .filter(graphId => graphId !== 'undefined');
+    
+    console.log(`📋 Found ${graphIds.length} graphs for user ${userId}:`, graphIds);
+    return graphIds.length > 0 ? graphIds : ['main']; // Default graph если пусто
+  },
+
+  // Проверить существует ли граф
+  async graphExists(graphId) {
+    const exists = await redis.exists(`graph:${graphId}`);
+    return Boolean(exists);
+  },
+
+  // Удалить граф
+  async deleteGraph(graphId) {
+    const key = `graph:${graphId}`;
+    const versionKey = `${key}:version`;
+    
+    await redis.del(key);
+    await redis.del(versionKey);
+    console.log(`🗑️ Graph ${graphId} deleted`);
+    return true;
   }
 };

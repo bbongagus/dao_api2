@@ -1,25 +1,36 @@
 {
-  "name": "dao-api-simple",
-  "version": "1.0.0",
-  "type": "module",
-  "description": "Simple Optimistic UI backend with Redis and BullMQ",
-  "main": "src/index.js",
+  "name": "dao-optimistic-backend",
+  "version": "2.0.0",
+  "description": "Simple Optimistic UI Backend - Figma/Miro Style",
+  "main": "src/simple-server.js",
   "scripts": {
-    "start": "node src/index.js & node src/worker.js",
-    "dev": "nodemon --watch src -e js --exec 'npm start'",
-    "api": "node src/index.js",
-    "worker": "node src/worker.js",
-    "test": "node src/test.js"
+    "start": "node src/simple-server.js",
+    "dev": "nodemon src/simple-server.js",
+    "docker:up": "docker-compose -f docker-compose.clean.yml up -d",
+    "docker:down": "docker-compose -f docker-compose.clean.yml down",
+    "docker:logs": "docker-compose -f docker-compose.clean.yml logs -f",
+    "docker:build": "docker-compose -f docker-compose.clean.yml build",
+    "test": "node src/test-simple.js"
   },
+  "keywords": [
+    "optimistic-ui",
+    "websocket",
+    "redis",
+    "real-time",
+    "collaboration"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
+    "ws": "^8.14.2",
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "ioredis": "^5.3.2",
-    "bullmq": "^4.12.0",
-    "ws": "^8.14.2",
-    "dotenv": "^16.3.1"
+    "ioredis": "^5.3.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

@@ -1,42 +1,38 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
-    container_name: dao-redis
+    container_name: optimistic-redis
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    restart: unless-stopped
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 5s
       timeout: 3s
       retries: 5
 
-  app:
+  backend:
     build: .
-    container_name: dao-api
+    container_name: optimistic-backend
     ports:
-      - "3000:3000"
-      - "8080:8080"
+      - "3001:3001"
     environment:
       - NODE_ENV=production
+      - PORT=3001
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - PORT=3000
-      - WS_PORT=8080
     depends_on:
       redis:
         condition: service_healthy
-    volumes:
-      - ./src:/app/src
-      - /app/node_modules
-    command: npm start
+    command: node src/simple-server.js
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   redis-data:
-    driver: local
