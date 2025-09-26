@@ -1,0 +1,25 @@
+{
+  "name": "dao-api-simple",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Simple Optimistic UI backend with Redis and BullMQ",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js & node src/worker.js",
+    "dev": "nodemon --watch src -e js --exec 'npm start'",
+    "api": "node src/index.js",
+    "worker": "node src/worker.js",
+    "test": "node src/test.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "ioredis": "^5.3.2",
+    "bullmq": "^4.12.0",
+    "ws": "^8.14.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
