@@ -1,245 +1,184 @@
-# 🚀 Optimistic UI Backend - Simple Version
+# Optimistic UI Backend
 
-Минималистичный backend для Graphy с поддержкой Optimistic UI, построенный на Redis и BullMQ.
+Real-time collaborative graph editing backend with WebSocket synchronization and Redis persistence.
 
-## ✨ Что это?
+## Quick Start
 
-Простой backend (всего ~1000 строк кода), который обеспечивает:
-- **Мгновенные обновления UI** - клиент не ждет ответа сервера
-- **Redis как источник правды** - быстрое и надежное хранилище
-- **BullMQ для команд** - асинхронная обработка с гарантией доставки
-- **WebSocket для синхронизации** - real-time подтверждения от сервера
+### Prerequisites
+- Docker and Docker Compose
+- Node.js 18+ (for local development)
 
-## 📁 Структура
+### Installation
 
-```
-dao_api2/
-├── src/
-│   ├── index.js       # API сервер (Express)
-│   ├── redis.js       # Работа с данными
-│   ├── queue.js       # Очередь команд
-│   ├── worker.js      # Обработчик команд
-│   └── websocket.js   # WebSocket сервер
-├── client/
-│   └── optimisticApi.js  # Клиентская библиотека
-└── docker-compose.yml     # Docker конфигурация
-```
-
-## 🚀 Быстрый старт
-
-### Вариант 1: С Docker (рекомендуется)
-
+1. Clone and navigate to the project:
 ```bash
-# 1. Клонируем и переходим в папку
 cd dao_api2
-
-# 2. Копируем .env
-cp .env.example .env
-
-# 3. Запускаем все сервисы
-docker-compose up -d
-
-# Готово! 
-# API: http://localhost:3000
-# WebSocket: ws://localhost:8080
 ```
 
-### Вариант 2: Локальная установка
-
+2. Set up environment:
 ```bash
-# 1. Установка зависимостей
+cp .env.example .env
+```
+
+3. Start with Docker:
+```bash
+docker-compose up -d
+```
+
+The backend will be available at:
+- WebSocket: `ws://localhost:3001`
+- REST API: `http://localhost:3001/api`
+- Redis: `localhost:6379`
+
+### Verify Installation
+```bash
+# Check containers
+docker ps
+
+# View logs
+docker logs optimistic-backend
+
+# Test health endpoint
+curl http://localhost:3001/health
+```
+
+## Development
+
+### Local Development
+```bash
+# Install dependencies
 npm install
 
-# 2. Копируем .env
-cp .env.example .env
-
-# 3. Запускаем Redis (нужен Docker)
-docker run -d -p 6379:6379 redis:7-alpine
-
-# 4. Запускаем backend (в разных терминалах)
-npm run api      # Terminal 1: API сервер
-npm run worker   # Terminal 2: Worker для обработки команд
-
-# Или все вместе:
+# Run locally (requires Redis)
 npm start
 ```
 
-## 🧪 Тестирование
-
+### Docker Development
 ```bash
-# Запустить тесты
-npm test
+# Build and run
+docker-compose up --build
 
-# Проверить health
-curl http://localhost:3000/health
+# Restart after changes
+docker-compose restart optimistic-backend
+
+# View logs
+docker-compose logs -f optimistic-backend
 ```
 
-## 📡 API Endpoints
+## Usage
 
-### Основные операции
-
+### WebSocket Connection
 ```javascript
-// Получить граф
-GET /api/graphs/:graphId
+const ws = new WebSocket('ws://localhost:3001');
 
-// Сохранить весь граф
-POST /api/graphs/:graphId
-Body: { nodes: [...], edges: [...], viewport: {...} }
+ws.on('open', () => {
+  // Subscribe to graph
+  ws.send(JSON.stringify({
+    type: 'SUBSCRIBE',
+    graphId: 'main',
+    userId: 'user1'
+  }));
+});
 
-// Выполнить команду (optimistic)
-POST /api/graphs/:graphId/command
-Body: { 
-  type: "ADD_NODE" | "UPDATE_NODE" | "DELETE_NODE" | ...,
-  payload: {...}
+ws.on('message', (data) => {
+  const message = JSON.parse(data);
+  // Handle GRAPH_STATE, OPERATION_APPLIED, etc.
+});
+```
+
+### REST API
+```javascript
+// Load graph
+fetch('http://localhost:3001/api/graphs/main')
+  .then(res => res.json())
+  .then(data => console.log(data.graph));
+
+// Save graph
+fetch('http://localhost:3001/api/graphs/main', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ nodes: [], edges: [] })
+});
+```
+
+## Operations
+
+### Supported Operations
+- `ADD_NODE` - Add new node (with parent support)
+- `UPDATE_NODE` - Update node properties
+- `DELETE_NODE` - Remove node and its connections
+- `ADD_EDGE` - Create edge between nodes
+- `DELETE_EDGE` - Remove edge
+- `UPDATE_VIEWPORT` - Update viewport state
+
+### Operation Format
+```json
+{
+  "type": "OPERATION",
+  "payload": {
+    "type": "UPDATE_NODE",
+    "payload": {
+      "id": "node-id",
+      "nodeId": "node-id",
+      "updates": {
+        "isDone": true,
+        "currentCompletions": 1
+      }
+    }
+  }
 }
-
-// Проверить статус операции
-GET /api/operations/:jobId
 ```
 
-### Типы команд
+## Features
 
-- `ADD_NODE` - добавить узел
-- `UPDATE_NODE` - обновить узел  
-- `UPDATE_NODE_POSITION` - обновить позицию
-- `DELETE_NODE` - удалить узел
-- `ADD_EDGE` - добавить связь
-- `DELETE_EDGE` - удалить связь
-- `UPDATE_VIEWPORT` - обновить viewport
-- `BATCH_UPDATE` - пакетное обновление
-- `SAVE_GRAPH` - сохранить весь граф
+- ✅ **Real-time Synchronization** - All changes instantly reflected across clients
+- ✅ **Optimistic Updates** - Immediate UI response with server confirmation
+- ✅ **Hierarchy Support** - Parent-child relationships preserved
+- ✅ **Progress Tracking** - isDone states and completion counts
+- ✅ **Daily Reset** - Automatic progress reset (configurable)
+- ✅ **Multi-tab Support** - Synchronized across browser tabs
+- ✅ **Auto-reconnection** - Resilient WebSocket connections
+- ✅ **Docker Ready** - Production-ready containerization
 
-## 💻 Интеграция с Frontend
+## Debugging
 
-### 1. Установка клиента
-
-```javascript
-// Скопируйте client/optimisticApi.js в ваш проект
-import OptimisticAPI from './services/optimisticApi';
-
-const api = new OptimisticAPI({
-  apiUrl: 'http://localhost:3000/api',
-  wsUrl: 'ws://localhost:8080',
-  graphId: 'main'
-});
-```
-
-### 2. Подключение
-
-```javascript
-// Подключаемся при загрузке
-await api.connect();
-
-// Загружаем граф
-const graph = await api.loadGraph();
-```
-
-### 3. Optimistic операции
-
-```javascript
-// Добавление узла (UI обновляется сразу)
-const node = await api.addNode({
-  title: 'New Node',
-  position: { x: 100, y: 100 }
-});
-
-// Обновление позиции (мгновенно)
-await api.updateNodePosition(nodeId, { x: 200, y: 200 });
-
-// Удаление узла
-await api.deleteNode(nodeId);
-```
-
-### 4. Обработка обновлений
-
-```javascript
-// Подписка на обновления от сервера
-api.onUpdate = (message) => {
-  console.log('Server confirmed:', message);
-  // Обновить состояние если нужно
-};
-
-// Обработка ошибок (откат optimistic updates)
-api.onError = (error) => {
-  console.log('Need to revert:', error);
-  // Откатить изменения в UI
-};
-```
-
-## 🔄 Как это работает?
-
-1. **Клиент** делает изменение и сразу обновляет UI (optimistic)
-2. **API** принимает команду и ставит в очередь BullMQ
-3. **Worker** обрабатывает команду и сохраняет в Redis
-4. **WebSocket** отправляет подтверждение всем клиентам
-5. **Клиент** получает подтверждение или откатывает изменения
-
-## 📊 Производительность
-
-- **Latency**: < 50ms для операций
-- **Throughput**: 1000+ операций/сек
-- **Redis memory**: ~1MB на 1000 узлов
-- **WebSocket**: до 1000 подключений
-
-## 🛠️ Конфигурация
-
-### Environment Variables
-
+### View Redis Data
 ```bash
-# Server
-PORT=3000
-WS_PORT=8080
+# Connect to Redis
+docker exec -it optimistic-redis redis-cli
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
+# Get graph data
+GET graph:main
 
-# CORS (для frontend)
-CORS_ORIGINS=http://localhost:5173
+# Clear all data
+FLUSHALL
 ```
 
-### Docker настройки
-
-Редактируйте `docker-compose.yml`:
-- Redis память: `--maxmemory 256mb`
-- Redis политика: `--maxmemory-policy allkeys-lru`
-
-## 📈 Развитие
-
-### Этап 1: Сейчас ✅
-- Базовые операции CRUD
-- Optimistic UI
-- WebSocket синхронизация
-
-### Этап 2: Скоро
-- [ ] Undo/Redo
-- [ ] Сохранение истории
-- [ ] Кэширование
-
-### Этап 3: Потом
-- [ ] Многопользовательский режим
-- [ ] Конфликты и их разрешение
-- [ ] Авторизация
-
-## 🐛 Отладка
-
+### Monitor WebSocket Traffic
 ```bash
-# Логи Docker
-docker-compose logs -f
-
-# Проверка Redis
-docker exec dao-redis redis-cli
-> KEYS *
-> GET graph:main
-
-# Мониторинг очереди
-curl http://localhost:3000/api/operations/:jobId
+# View real-time logs
+docker logs -f optimistic-backend | grep -E "ADD_NODE|UPDATE_NODE|DELETE_NODE"
 ```
 
-## 📝 Лицензия
+### Common Issues
+
+**Connection refused:**
+- Check Docker containers are running: `docker ps`
+- Verify ports are not in use: `lsof -i :3001`
+
+**Data not persisting:**
+- Check Redis is running: `docker exec optimistic-redis redis-cli ping`
+- View Redis logs: `docker logs optimistic-redis`
+
+**Updates not syncing:**
+- Check WebSocket connection in browser console
+- Verify SUBSCRIBE message was sent
+- Check for CORS issues if frontend on different port
+
+## Architecture
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system design.
+
+## License
 
 MIT
-
----
-
-**Простой, быстрый, надежный backend для Optimistic UI!** 🚀
