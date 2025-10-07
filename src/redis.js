@@ -1,39 +1,75 @@
 import Redis from 'ioredis';
 
-// Parse Redis URL if provided (Railway format)
-const redisUrl = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL;
+// Railway provides individual variables which work better than REDIS_URL
+// Try individual params first (Railway REDISHOST, REDISPORT, REDISPASSWORD)
+// Then fall back to URL format
+// Then fall back to localhost
 
-// Create Redis client instance
 let redis;
 
-if (redisUrl) {
-  // Use connection URL (Railway, Heroku, etc.)
+const redisHost = process.env.REDISHOST || process.env.REDIS_HOST;
+const redisPort = process.env.REDISPORT || process.env.REDIS_PORT;
+const redisPassword = process.env.REDISPASSWORD || process.env.REDIS_PASSWORD;
+const redisUrl = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL;
+
+if (redisHost && redisPort) {
+  // Use individual connection parameters (Railway or local)
+  console.log(`📡 Connecting to Redis using host/port: ${redisHost}:${redisPort}`);
+  redis = new Redis({
+    host: redisHost,
+    port: parseInt(redisPort),
+    password: redisPassword || undefined,
+    retryStrategy: (times) => {
+      if (times > 20) {
+        console.error('❌ Redis retry limit reached');
+        return null;
+      }
+      const delay = Math.min(times * 50, 2000);
+      console.log(`🔄 Redis retry attempt ${times}, waiting ${delay}ms`);
+      return delay;
+    },
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    lazyConnect: false,
+    connectTimeout: 10000
+  });
+} else if (redisUrl) {
+  // Use connection URL (fallback)
   console.log('📡 Connecting to Redis using URL...');
   redis = new Redis(redisUrl, {
     retryStrategy: (times) => {
+      if (times > 20) {
+        console.error('❌ Redis retry limit reached');
+        return null;
+      }
       const delay = Math.min(times * 50, 2000);
       console.log(`🔄 Redis retry attempt ${times}, waiting ${delay}ms`);
       return delay;
     },
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
-    lazyConnect: false
+    lazyConnect: false,
+    connectTimeout: 10000
   });
 } else {
-  // Use individual connection parameters (local development)
-  console.log('📡 Connecting to Redis using host/port...');
+  // Fallback to localhost
+  console.log('📡 Connecting to Redis using localhost (no env vars found)');
   redis = new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
+    host: 'localhost',
+    port: 6379,
     retryStrategy: (times) => {
+      if (times > 20) {
+        console.error('❌ Redis retry limit reached');
+        return null;
+      }
       const delay = Math.min(times * 50, 2000);
       console.log(`🔄 Redis retry attempt ${times}, waiting ${delay}ms`);
       return delay;
     },
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
-    lazyConnect: false
+    lazyConnect: false,
+    connectTimeout: 10000
   });
 }
 
