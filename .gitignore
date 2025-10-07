@@ -1,15 +1,25 @@
 # Dependencies
 node_modules/
+package-lock.json
 
 # Environment variables
 .env
-.env.local
+.env*.local
 .env.production
+.env.development.local
+
+# Vercel
+.vercel
+.vercel.json
 
 # Logs
 logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
 # Runtime data
 pids
@@ -26,14 +36,47 @@ redis-data/
 
 # OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Thumbs.db:encryptable
+*~
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*.swn
+*.code-workspace
+.project
+.classpath
+.settings/
 
 # Build
 dist/
 build/
+out/
+.next/
+.nuxt/
+.cache/
+
+# Testing
+coverage/
+*.lcov
+.nyc_output
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

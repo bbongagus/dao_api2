@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   redis:
     image: redis:7-alpine
@@ -12,9 +14,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - optimistic-network
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: optimistic-backend
     ports:
       - "3001:3001"
@@ -23,16 +29,28 @@ services:
       - PORT=3001
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - APP_URL=${APP_URL:-http://localhost:3000}
     depends_on:
       redis:
         condition: service_healthy
-    command: node src/simple-server.js
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - optimistic-network
+    volumes:
+      # Монтируем src для горячей перезагрузки в dev режиме (опционально)
+      - ./src:/app/src:ro
+      - ./package.json:/app/package.json:ro
+
+networks:
+  optimistic-network:
+    driver: bridge
 
 volumes:
   redis-data:
+    driver: local

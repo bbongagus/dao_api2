@@ -3,33 +3,65 @@
  * Минимум абстракций, максимум производительности
  */
 
-const WebSocket = require('ws');
-const express = require('express');
-const cors = require('cors');
-const Redis = require('ioredis');
-const http = require('http');
+import { WebSocketServer } from 'ws';
+import express from 'express';
+import cors from 'cors';
+import http from 'http';
+import redis from './redis.js'; // Import shared Redis client
+import SimplifiedAnalytics from './analytics-v2.js';
+import { CronJob } from 'cron';
+import progressSnapshots from './progress-snapshots.js';
+
+// Default user ID for testing (matches frontend)
+const DEFAULT_USER_ID = '1';
 
 // Initialize Express app
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Initialize Redis
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  retryStrategy: (times) => Math.min(times * 50, 2000)
-});
-
 // Initialize HTTP server
 const server = http.createServer(app);
 
 // Initialize WebSocket server
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 // Track connected clients
 const clients = new Map();
 let clientIdCounter = 1;
+
+// Initialize Analytics Service (simplified version)
+const analytics = new SimplifiedAnalytics(redis);
+
+// Initialize daily snapshot job at 00:00 every day
+const snapshotJob = new CronJob(
+  '0 0 * * *', // At midnight every day
+  async () => {
+    console.log('🕐 Running daily progress snapshot job...');
+    try {
+      const snapshots = await progressSnapshots.snapshotAllNodes(new Date(), DEFAULT_USER_ID, 'main');
+      console.log(`✅ Daily snapshot completed: ${snapshots.length} nodes`);
+    } catch (error) {
+      console.error('❌ Daily snapshot failed:', error);
+    }
+  },
+  null,
+  true, // Start the job right away
+  'Europe/Belgrade' // Timezone
+);
+
+// Also run snapshot on startup for testing
+setTimeout(async () => {
+  console.log('📸 Running initial progress snapshot...');
+  try {
+    const snapshots = await progressSnapshots.snapshotAllNodes(new Date(), DEFAULT_USER_ID, 'main');
+    console.log(`✅ Initial snapshot completed: ${snapshots.length} nodes`);
+  } catch (error) {
+    console.error('❌ Initial snapshot failed:', error);
+  }
+}, 5000); // Wait 5 seconds after startup
+
+console.log('✅ Progress Snapshots Service initialized');
 
 /**
  * Check if progress should be reset (daily reset logic)
@@ -85,22 +117,40 @@ function resetAllProgress(graph) {
 /**
  * Redis Operations - Simple and Direct
  */
-async function getGraph(graphId) {
+async function getGraph(graphId, userId = DEFAULT_USER_ID) {
   try {
-    console.log(`📖 Getting graph: ${graphId} from Redis`);
-    const data = await redis.get(`graph:${graphId}`);
+    console.log(`📖 Getting graph: ${graphId} for user: ${userId} from Redis`);
+    
+    // Try user-specific key first
+    let data = await redis.get(`user:${userId}:graph:${graphId}`);
+    
+    // Fallback to old key format for backward compatibility
     if (!data) {
-      console.log(`📭 Graph ${graphId} not found, returning empty graph`);
+      data = await redis.get(`graph:${graphId}`);
+      if (data) {
+        console.log(`📦 Found graph in old format, will migrate on save`);
+      }
+    }
+    
+    if (!data) {
+      console.log(`📭 Graph ${graphId} not found for user ${userId}, returning empty graph`);
       // Return default empty graph
       return {
         nodes: [],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
-        version: 0
+        version: 0,
+        userId: userId
       };
     }
+    
     const graph = JSON.parse(data);
-    console.log(`✅ Graph ${graphId} loaded: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
+    // Ensure userId is in the graph
+    if (!graph.userId) {
+      graph.userId = userId;
+    }
+    
+    console.log(`✅ Graph ${graphId} loaded for user ${userId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
     return graph;
   } catch (error) {
     console.error('❌ Redis get error:', error);
@@ -108,20 +158,31 @@ async function getGraph(graphId) {
   }
 }
 
-async function saveGraph(graphId, graph) {
+async function saveGraph(graphId, graph, userId = DEFAULT_USER_ID) {
   try {
     // Increment version
     graph.version = (graph.version || 0) + 1;
     graph.lastUpdated = new Date().toISOString();
+    graph.userId = userId; // Store userId in graph
     
     const graphData = JSON.stringify(graph);
-    console.log(`💾 Saving graph ${graphId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges, version ${graph.version}`);
+    const redisKey = `user:${userId}:graph:${graphId}`;
     
-    await redis.set(`graph:${graphId}`, graphData);
-    console.log(`✅ Graph ${graphId} saved to Redis successfully`);
+    console.log(`💾 Saving graph ${graphId} for user ${userId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges, version ${graph.version}`);
+    
+    await redis.set(redisKey, graphData);
+    console.log(`✅ Graph ${graphId} saved to Redis for user ${userId} successfully`);
+    
+    // Clean up old key format if it exists
+    const oldKey = `graph:${graphId}`;
+    const oldData = await redis.get(oldKey);
+    if (oldData) {
+      await redis.del(oldKey);
+      console.log(`🧹 Cleaned up old key format: ${oldKey}`);
+    }
     
     // Also save to history (optional, for undo/redo)
-    const historyKey = `history:${graphId}:${Date.now()}`;
+    const historyKey = `history:${userId}:${graphId}:${Date.now()}`;
     await redis.setex(historyKey, 3600, graphData); // Keep for 1 hour
     
     return true;
@@ -146,8 +207,8 @@ async function addOperation(graphId, operation) {
 /**
  * Apply operation to graph
  */
-async function applyOperation(graphId, operation) {
-  const graph = await getGraph(graphId);
+async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
+  const graph = await getGraph(graphId, userId);
   if (!graph) return null;
 
   const { type, payload } = operation;
@@ -164,6 +225,7 @@ async function applyOperation(graphId, operation) {
         isDone: payload.isDone || false,
         currentCompletions: payload.currentCompletions || 0,
         requiredCompletions: payload.requiredCompletions || 1,
+        calculatedProgress: payload.calculatedProgress || 0,
         linkedNodeIds: payload.linkedNodeIds || {},
         children: payload.children || []
       };
@@ -227,6 +289,8 @@ async function applyOperation(graphId, operation) {
       countAll(graph.nodes);
       console.log(`  📊 Total nodes in hierarchy: ${totalCount}`);
       
+      // No need to track node creation - only progress updates matter
+      
       break;
 
     case 'UPDATE_NODE':
@@ -271,8 +335,50 @@ async function applyOperation(graphId, operation) {
               node.nodeSubtype = payload.updates.nodeSubtype;
               console.log(`    Updated nodeSubtype to: ${node.nodeSubtype}`);
             }
+            if (payload.updates.calculatedProgress !== undefined) {
+              node.calculatedProgress = payload.updates.calculatedProgress;
+              console.log(`    Updated calculatedProgress to: ${node.calculatedProgress}`);
+            }
             
-            console.log(`  After update: isDone=${node.isDone}, completions=${node.currentCompletions}/${node.requiredCompletions}`);
+            console.log(`  After update: isDone=${node.isDone}, completions=${node.currentCompletions}/${node.requiredCompletions}, progress=${node.calculatedProgress ? Math.round(node.calculatedProgress * 100) : 0}%`);
+            
+            // Track analytics for progress updates ONLY
+            if (payload.updates.isDone !== undefined || payload.updates.currentCompletions !== undefined) {
+              // Track all affected nodes (current + parents that calculate from it)
+              const affectedNodes = findAffectedNodes(graph.nodes, nodeIdToUpdate);
+              
+              for (const affectedNode of affectedNodes) {
+                const category = findNodeCategory(graph.nodes, affectedNode.id);
+                const nodePath = getNodePath(graph.nodes, affectedNode.id);
+                
+                // Calculate progress for each affected node
+                const currentProgress = calculateNodeProgress(affectedNode);
+                
+                // Save calculatedProgress for affected nodes (especially important for fundamental nodes)
+                if (affectedNode.nodeType === 'fundamental') {
+                  affectedNode.calculatedProgress = currentProgress / 100; // Store as 0-1 value
+                  console.log(`    Saved calculatedProgress=${affectedNode.calculatedProgress} for fundamental node ${affectedNode.id}`);
+                }
+                
+                // Track progress update in simplified analytics
+                analytics.trackProgressUpdate(DEFAULT_USER_ID, graphId, affectedNode.id, {
+                  nodeTitle: affectedNode.title || affectedNode.name || 'Unknown',
+                  nodePath: nodePath,
+                  nodeType: affectedNode.nodeType,
+                  nodeSubtype: affectedNode.nodeSubtype,
+                  categoryId: category ? category.id : null,
+                  categoryName: category ? (category.title || category.name) : null,
+                  previousProgress: affectedNode.previousProgress || 0,
+                  currentProgress: currentProgress,
+                  isDone: affectedNode.isDone,
+                  previousIsDone: affectedNode.previousIsDone,
+                  currentCompletions: affectedNode.currentCompletions || 0,
+                  requiredCompletions: affectedNode.requiredCompletions || 1
+                });
+                
+                console.log(`  📊 Analytics: Tracked progress ${currentProgress}% for affected node ${affectedNode.id}`);
+              }
+            }
             
             return true;
           }
@@ -352,10 +458,114 @@ async function applyOperation(graphId, operation) {
       return null;
   }
 
-  await saveGraph(graphId, graph);
+  await saveGraph(graphId, graph, userId);
   await addOperation(graphId, operation);
   
   return graph;
+}
+
+/**
+ * Helper: Find category parent for a node
+ */
+function findNodeCategory(nodes, targetNodeId, parent = null) {
+  for (const node of nodes) {
+    if (node.id === targetNodeId) {
+      // Found target, return parent if it's a category
+      if (parent && parent.nodeType === 'fundamental' && parent.nodeSubtype === 'category') {
+        return parent;
+      }
+      return null;
+    }
+    if (node.children) {
+      const found = findNodeCategory(node.children, targetNodeId, node);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Helper: Get node path from root to node
+ */
+function getNodePath(nodes, targetNodeId, currentPath = []) {
+  for (const node of nodes) {
+    const newPath = [...currentPath, node.id];
+    if (node.id === targetNodeId) {
+      return newPath;
+    }
+    if (node.children) {
+      const found = getNodePath(node.children, targetNodeId, newPath);
+      if (found) return found;
+    }
+  }
+  return [];
+}
+
+/**
+ * Calculate node progress (handles both DAO and Fundamental nodes)
+ */
+function calculateNodeProgress(node) {
+  if (node.nodeType === 'dao') {
+    if (node.isDone) return 100;
+    if (node.requiredCompletions > 0) {
+      return (node.currentCompletions / node.requiredCompletions) * 100;
+    }
+    return 0;
+  } else if (node.nodeType === 'fundamental') {
+    // For fundamental nodes, calculate from children
+    if (node.nodeSubtype === 'category' && node.children) {
+      const childProgress = node.children.map(child => calculateNodeProgress(child));
+      if (childProgress.length > 0) {
+        return childProgress.reduce((a, b) => a + b, 0) / childProgress.length;
+      }
+    }
+    // Use calculatedProgress if available
+    return (node.calculatedProgress || 0) * 100;
+  }
+  return 0;
+}
+
+/**
+ * Find all nodes affected by a change (current + parents)
+ */
+function findAffectedNodes(nodes, targetNodeId, affected = []) {
+  // First, find the target node
+  let targetNode = null;
+  const findTarget = (nodes) => {
+    for (const node of nodes) {
+      if (node.id === targetNodeId) {
+        targetNode = node;
+        return;
+      }
+      if (node.children) findTarget(node.children);
+    }
+  };
+  findTarget(nodes);
+  
+  if (targetNode) {
+    affected.push(targetNode);
+  }
+  
+  // Find all parents that might be affected
+  const findParents = (nodes, parent = null) => {
+    for (const node of nodes) {
+      if (node.children) {
+        // Check if this node has the target as a child
+        if (node.children.some(child => child.id === targetNodeId)) {
+          if (!affected.find(n => n.id === node.id)) {
+            affected.push(node);
+            // Recursively find parents of this parent
+            findAffectedNodes(nodes, node.id, affected);
+          }
+        }
+        // Continue searching in children
+        findParents(node.children, node);
+      }
+    }
+  };
+  findParents(nodes);
+  
+  return affected;
 }
 
 /**
@@ -389,17 +599,22 @@ wss.on('connection', (ws, req) => {
         case 'SUBSCRIBE':
           // Subscribe to a specific graph
           clientInfo.graphId = data.graphId;
-          clientInfo.userId = data.userId;
-          console.log(`📡 Client ${clientId} subscribed to graph "${data.graphId}" as user ${data.userId}`);
+          clientInfo.userId = data.userId || DEFAULT_USER_ID;
+          console.log(`📡 Client ${clientId} subscribed to graph "${data.graphId}" as user ${clientInfo.userId}`);
           
           // Send current graph state
-          const graph = await getGraph(data.graphId);
+          const graph = await getGraph(data.graphId, clientInfo.userId);
+          
+          // Ensure settings are included
+          if (!graph.settings) {
+            graph.settings = {};
+          }
           
           // Check if we need to reset progress
           if (shouldResetProgress(graph)) {
             console.log('🔄 Daily reset triggered, resetting progress...');
             resetAllProgress(graph);
-            await saveGraph(data.graphId, graph);
+            await saveGraph(data.graphId, graph, clientInfo.userId);
           }
           
           // Debug: Check graph structure before sending
@@ -437,8 +652,8 @@ wss.on('connection', (ws, req) => {
             return;
           }
 
-          console.log(`🔧 Applying operation: ${data.payload.type} to graph ${clientInfo.graphId}`);
-          const result = await applyOperation(clientInfo.graphId, data.payload);
+          console.log(`🔧 Applying operation: ${data.payload.type} to graph ${clientInfo.graphId} for user ${clientInfo.userId}`);
+          const result = await applyOperation(clientInfo.graphId, data.payload, clientInfo.userId);
           if (result) {
             // Broadcast to all clients subscribed to this graph
             const broadcastMessage = JSON.stringify({
@@ -452,7 +667,7 @@ wss.on('connection', (ws, req) => {
             let broadcastCount = 0;
             clients.forEach((client, id) => {
               if (client.graphId === clientInfo.graphId &&
-                  client.ws.readyState === WebSocket.OPEN) {
+                  client.ws.readyState === 1) { // 1 = OPEN state
                 client.ws.send(broadcastMessage);
                 broadcastCount++;
                 console.log(`  → Sent to client ${id} (${id === clientId ? 'sender' : 'other tab'})`);
@@ -468,7 +683,7 @@ wss.on('connection', (ws, req) => {
         case 'SYNC':
           // Full sync request
           if (clientInfo.graphId) {
-            const syncGraph = await getGraph(clientInfo.graphId);
+            const syncGraph = await getGraph(clientInfo.graphId, clientInfo.userId);
             ws.send(JSON.stringify({
               type: 'SYNC_RESPONSE',
               payload: syncGraph
@@ -512,15 +727,22 @@ wss.on('connection', (ws, req) => {
 // Get graph
 app.get('/api/graphs/:graphId', async (req, res) => {
   try {
-    const graph = await getGraph(req.params.graphId);
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    const graph = await getGraph(req.params.graphId, userId);
+    
+    // Ensure settings are included in the response
+    if (graph && !graph.settings) {
+      graph.settings = {};
+    }
+    
     res.json({
       success: true,
       graph: graph
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -529,20 +751,22 @@ app.get('/api/graphs/:graphId', async (req, res) => {
 app.post('/api/graphs/:graphId', async (req, res) => {
   try {
     const graphId = req.params.graphId;
-    console.log(`📝 REST API: Saving graph ${graphId}`);
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    console.log(`📝 REST API: Saving graph ${graphId} for user ${userId}`);
     console.log(`   Nodes: ${req.body.nodes?.length || 0}, Edges: ${req.body.edges?.length || 0}`);
     
-    const graph = await getGraph(graphId);
+    const graph = await getGraph(graphId, userId);
     
     // Merge with existing data
     const updatedGraph = {
       ...graph,
       nodes: req.body.nodes || graph.nodes,
       edges: req.body.edges || graph.edges,
-      viewport: req.body.viewport || graph.viewport
+      viewport: req.body.viewport || graph.viewport,
+      settings: req.body.settings || graph.settings || {} // Include settings from request
     };
     
-    const saved = await saveGraph(graphId, updatedGraph);
+    const saved = await saveGraph(graphId, updatedGraph, userId);
     
     if (saved) {
       console.log(`✅ REST API: Graph ${graphId} saved successfully`);
@@ -558,7 +782,7 @@ app.post('/api/graphs/:graphId', async (req, res) => {
       let broadcastCount = 0;
       clients.forEach((client) => {
         if (client.graphId === graphId &&
-            client.ws.readyState === WebSocket.OPEN) {
+            client.ws.readyState === 1) { // 1 = OPEN state
           client.ws.send(broadcastMessage);
           broadcastCount++;
         }
@@ -635,6 +859,188 @@ app.get('/api/users/:userId/graphs', async (req, res) => {
   }
 });
 
+// Progress comparison endpoint - MUST BE BEFORE :graphId route
+app.get('/api/analytics/progress-comparison', async (req, res) => {
+  try {
+    if (!progressSnapshots) {
+      throw new Error('Progress Snapshots Service not initialized');
+    }
+    
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    const { period = '30d', nodeIds } = req.query;
+    
+    // Parse nodeIds from query string
+    const ids = nodeIds ? (Array.isArray(nodeIds) ? nodeIds : nodeIds.split(',')) : [];
+    
+    if (ids.length === 0) {
+      return res.json({
+        success: true,
+        comparisons: []
+      });
+    }
+    
+    console.log(`📊 Getting progress comparison for ${ids.length} nodes, period: ${period}`);
+    
+    // Convert period to days
+    const periodDays = period === 'today' ? 1 :
+                      period === '7d' ? 7 :
+                      period === '30d' ? 30 : 30;
+    
+    // Extract graphId from request (default to 'main')
+    const graphId = req.query.graphId || 'main';
+    
+    const comparisons = await progressSnapshots.batchCompareProgress(ids, periodDays, userId, graphId);
+    
+    res.json({
+      success: true,
+      period,
+      comparisons
+    });
+  } catch (error) {
+    console.error('❌ Progress comparison error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Manual snapshot endpoint (for testing)
+app.post('/api/analytics/snapshot', async (req, res) => {
+  try {
+    if (!progressSnapshots) {
+      throw new Error('Progress Snapshots Service not initialized');
+    }
+    
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    const graphId = req.query.graphId || 'main';
+    console.log(`📸 Manual snapshot triggered for user ${userId}, graph ${graphId}`);
+    
+    const snapshots = await progressSnapshots.snapshotAllNodes(new Date(), userId, graphId);
+    
+    res.json({
+      success: true,
+      message: `Created ${snapshots.length} snapshots`,
+      snapshots: snapshots.slice(0, 10) // Return first 10 as sample
+    });
+  } catch (error) {
+    console.error('❌ Manual snapshot error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get available snapshots for a node
+app.get('/api/analytics/snapshots/:nodeId', async (req, res) => {
+  try {
+    if (!progressSnapshots) {
+      throw new Error('Progress Snapshots Service not initialized');
+    }
+    
+    const { nodeId } = req.params;
+    const dates = await progressSnapshots.getAvailableDates(nodeId);
+    
+    res.json({
+      success: true,
+      nodeId,
+      dates: dates.map(d => d.toISOString()),
+      count: dates.length
+    });
+  } catch (error) {
+    console.error('❌ Get snapshots error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Simplified Analytics endpoints - AFTER specific routes
+app.get('/api/analytics/:graphId', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    const graphId = req.params.graphId;
+    const contextNodeId = req.query.context || null;
+    const period = 'all'; // MVP - only all time
+    
+    console.log(`📊 Getting analytics for ${graphId}, context: ${contextNodeId || 'root'}`);
+    const analytics_data = await analytics.getAnalytics(userId, graphId, {
+      period,
+      contextNodeId
+    });
+    
+    res.json({
+      success: true,
+      data: analytics_data
+    });
+  } catch (error) {
+    console.error('❌ Analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Category analytics endpoint
+app.get('/api/analytics/categories/:graphId', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    const contextNodeId = req.query.context || null;
+    
+    console.log(`📊 Getting category analytics for graph ${req.params.graphId}`);
+    const categories = await analytics.getCategoryAnalytics(userId, req.params.graphId, contextNodeId);
+    
+    res.json({
+      success: true,
+      data: categories
+    });
+  } catch (error) {
+    console.error('❌ Category analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// AI Planning endpoint (dynamic import to avoid startup crash if API key missing)
+app.post('/api/ai/generate-plan', async (req, res) => {
+  try {
+    const { messages } = req.body;
+    
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({
+        success: false,
+        error: 'messages array is required'
+      });
+    }
+    
+    console.log('🤖 Generating AI plan for messages:', messages.length);
+    
+    // Dynamic import - only loads when endpoint is called
+    const aiPlanningModule = await import('./ai-planning.js');
+    const aiPlanning = aiPlanningModule.default;
+    
+    // Format and send to AI
+    const formattedMessages = aiPlanning.formatMessagesForAPI(messages);
+    const response = await aiPlanning.sendMessageToAI(formattedMessages);
+    
+    res.json({
+      success: true,
+      response
+    });
+  } catch (error) {
+    console.error('❌ AI planning error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({
@@ -678,4 +1084,4 @@ process.on('SIGTERM', () => {
   });
 });
 
-module.exports = { app, wss };
+export { app, wss };
