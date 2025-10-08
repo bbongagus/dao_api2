@@ -229,7 +229,16 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
         linkedNodeIds: payload.linkedNodeIds || {},
         children: payload.children || []
       };
+      
+      // DIAGNOSTIC: Log linkedNodeIds status
+      const linkedIdsCount = Object.keys(newNode.linkedNodeIds).length;
       console.log(`  📋 Adding node: id=${newNode.id}, title="${newNode.title}", isDone=${newNode.isDone}, completions=${newNode.currentCompletions}/${newNode.requiredCompletions}`);
+      if (linkedIdsCount > 0) {
+        console.log(`  🔗 Node has ${linkedIdsCount} linkedNodeIds connection types:`, Object.keys(newNode.linkedNodeIds));
+        Object.entries(newNode.linkedNodeIds).forEach(([type, ids]) => {
+          console.log(`     ${type}: [${ids.join(', ')}]`);
+        });
+      }
       
       let parentNode = null;
       
@@ -316,6 +325,24 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
             if (payload.updates.children !== undefined) {
               node.children = payload.updates.children;
               console.log(`    Updated children array, now has ${node.children.length} children`);
+              
+              // DIAGNOSTIC: Check if children have linkedNodeIds
+              const childrenWithLinks = node.children.filter(c => c.linkedNodeIds && Object.keys(c.linkedNodeIds).length > 0);
+              if (childrenWithLinks.length > 0) {
+                console.log(`    🔗 ${childrenWithLinks.length} children have linkedNodeIds`);
+              }
+            }
+            
+            // DIAGNOSTIC: Log linkedNodeIds updates
+            if (payload.updates.linkedNodeIds !== undefined) {
+              node.linkedNodeIds = payload.updates.linkedNodeIds;
+              const linkedIdsCount = Object.keys(node.linkedNodeIds).length;
+              console.log(`    🔗 Updated linkedNodeIds: ${linkedIdsCount} connection types`);
+              if (linkedIdsCount > 0) {
+                Object.entries(node.linkedNodeIds).forEach(([type, ids]) => {
+                  console.log(`       ${type}: [${ids.join(', ')}]`);
+                });
+              }
             }
             
             // Ensure progress fields are preserved/updated
@@ -600,7 +627,14 @@ wss.on('connection', (ws, req) => {
           // Subscribe to a specific graph
           clientInfo.graphId = data.graphId;
           clientInfo.userId = data.userId || DEFAULT_USER_ID;
-          console.log(`📡 Client ${clientId} subscribed to graph "${data.graphId}" as user ${clientInfo.userId}`);
+          
+          // DIAGNOSTIC: Log userId status
+          if (!data.userId) {
+            console.error(`⚠️  Client ${clientId} SUBSCRIBE without userId! Using DEFAULT_USER_ID='${DEFAULT_USER_ID}'`);
+            console.error(`   This will cause user isolation failure - all users share same graph!`);
+          } else {
+            console.log(`✅ Client ${clientId} subscribed to graph "${data.graphId}" with userId="${clientInfo.userId}"`);
+          }
           
           // Send current graph state
           const graph = await getGraph(data.graphId, clientInfo.userId);
