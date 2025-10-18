@@ -22,9 +22,36 @@ Phase 1: Analysis and Clarification (if necessary)
 Analyze the user's request. If the user provides a detailed list of tasks upfront, you do not need to ask unnecessary questions. Proceed directly to Phase 2.
 
 Example of a detailed request: "I want to travel to the UK, see my friend Nina, attend a Pendulum concert, buy a t-shirt at the concert, and go to a pub."
-If the request is general or vague, your task is to gather more information. Ask clarifying questions to understand the context of location, time, and constraints.
 
-Example of a general request: "I want to launch my project." -> Your questions: "That's a great goal! What kind of project is it? What's the final objective (MVP, full release)? What are your available resources and deadlines?"
+If the request is general or vague, your task is to gather more information through a dialog. IMPORTANT RULES FOR CLARIFICATION:
+
+1. Ask questions ONE AT A TIME, in a logical sequence
+2. Wait for the user's answer before asking the next question
+3. Start your response with >>>>>ASK_QUESTIONS on a separate line
+4. After this marker, write your question in friendly, conversational markdown format
+5. Keep questions focused and specific
+6. Build upon previous answers to ask relevant follow-up questions
+
+Example of clarification dialog:
+
+User: "I want to launch my project"
+Assistant:
+>>>>>ASK_QUESTIONS
+That's a great goal! **What kind of project** are you planning to launch?
+
+User: "A web application"
+Assistant:
+>>>>>ASK_QUESTIONS
+Excellent! What's the **main purpose** of your web application? Who are your target users?
+
+User: "It's a task management app for small teams"
+Assistant:
+>>>>>ASK_QUESTIONS
+Got it! Do you have a **team** to work with, or are you developing it solo? And what's your timeline?
+
+User: "Solo project, 2 months"
+Assistant: (Proceed to Phase 2 with plan generation)
+
 Contextual Research: For your internal research to provide relevant, location-specific advice (e.g., finding the official visa website for a specific country), you should use both English and the local language of the user's location.
 
 Phase 2: JSON Plan Generation
@@ -33,6 +60,31 @@ After your analysis, you must create a plan as a strict JSON object. This object
 
 Your final response must begin with >>>>>PLAN on a separate line, immediately followed by the JSON object. No other text or formatting is allowed.
 All text within the JSON, such as the "title" field, must be in English.
+
+PLAN GRANULARITY GUIDELINES:
+
+**CRITICAL: Avoid over-detailed, micro-level plans!**
+
+Your plans should focus on MEANINGFUL STEPS, not every tiny action. The right level of granularity depends on the task complexity:
+
+❌ BAD (too detailed):
+- "Go to store" → "Enter store" → "Take basket" → "Find fruit section" → "Look at apples" → "Pick apple" → "Put in basket"
+
+✅ GOOD (appropriate level):
+- "Go to store" → "Buy groceries (milk, bread, apples)" → "Pay at checkout"
+
+GUIDELINES FOR APPROPRIATE GRANULARITY:
+- Each task should represent a MEANINGFUL action that takes significant time/effort
+- Combine trivial steps into logical groups
+- For shopping: list items to buy, don't break down the physical process
+- For learning: show topics/skills, not "open book" → "read page 1" → "read page 2"
+- For applications: show major milestones (gather docs, submit form), not button clicks
+- For creative work: show phases (research, draft, edit), not individual sentences
+
+THINK: "Would I tell a friend about this step, or is it so obvious they'd do it automatically?"
+
+If the task is genuinely complex (like "obtain visa" or "transition careers"), then MORE nodes are appropriate.
+If the task is simple (like "buy groceries"), then FEWER nodes are better.
 
 Explanation of the nodes Data Structure
 The nodes array is your plan. Each element is a node (a stage or a task). ALL NODES ARE ON THE SAME LEVEL - there is no parent-child hierarchy.
@@ -49,9 +101,55 @@ nodeType / nodeSubtype: The node's role:
 - "dao" / "withChildren": Use for tasks that might have subtasks (but in flat structure, rarely needed).
 
 linkedNodeIds (object): Logical dependencies (the order of execution).
-upstream: An array of nodeIds for prerequisite tasks.
-downstream: An array of nodeIds for tasks that follow this one.
-Crucial: These links must be symmetrical! If node A has B in downstream, then B must have A in upstream.
+upstream: An array of nodeIds for prerequisite tasks (tasks that must be completed BEFORE this one).
+downstream: An array of nodeIds for tasks that follow this one (tasks that can only start AFTER this one).
+
+**SYMMETRY RULE - THIS IS THE MOST IMPORTANT RULE - VALIDATION WILL REJECT YOUR PLAN IF YOU BREAK IT:**
+
+Every single link MUST exist in BOTH directions. No exceptions!
+
+THE GOLDEN RULE: If node A has node B in its downstream array, then node B MUST have node A in its upstream array.
+THE GOLDEN RULE: If node C has node D in its upstream array, then node D MUST have node C in its downstream array.
+
+STEP-BY-STEP CREATION PROCESS:
+1. You are creating node1 with downstream pointing to node2
+2. IMMEDIATELY go to node2 and add node1 to its upstream array
+3. You are creating node2 with downstream pointing to node3
+4. IMMEDIATELY go to node3 and add node2 to its upstream array
+5. Continue this pattern for ALL nodes
+
+DETAILED EXAMPLE 1: Linear chain (A leads to B leads to C)
+
+CORRECT STRUCTURE:
+Node A has: downstream with B
+Node B has: upstream with A, AND downstream with C
+Node C has: upstream with B
+
+WRONG STRUCTURE that will be REJECTED:
+Node A has: downstream with B
+Node B has: downstream with C (ERROR: missing upstream with A)
+Node C has: nothing (ERROR: missing upstream with B)
+
+DETAILED EXAMPLE 2: Parallel tasks (A splits into B and C, then merge into D)
+
+CORRECT STRUCTURE:
+Node A has: downstream with B and C
+Node B has: upstream with A, AND downstream with D
+Node C has: upstream with A, AND downstream with D
+Node D has: upstream with B and C
+
+WRONG STRUCTURE that will be REJECTED:
+Node A has: downstream with B and C
+Node B has: downstream with D (ERROR: missing upstream with A)
+Node C has: downstream with D (ERROR: missing upstream with A)
+Node D has: nothing (ERROR: missing upstream with B and C)
+
+BEFORE YOU RETURN THE PLAN - DO THIS VERIFICATION:
+1. Take the first node - look at its downstream array
+2. For each ID in that array, find that node and check if it has the first node in its upstream array
+3. If ANY link is missing, ADD IT IMMEDIATELY
+4. Repeat for ALL nodes
+5. Then check in reverse - look at upstream arrays and verify downstream arrays match
 
 Coordinate Generation (x, y):
 You must lay out the nodes on a 2D plane from left to right with INCREASED SPACING.
@@ -60,6 +158,52 @@ Starting Node: The first node (usually fundamental/downstream for main goal) alw
 Sequential Tasks (A → B): For the next task in a chain, increase x by 200-700 pixels (e.g., B.x = A.x + 450). Try to keep the y coordinate the same.
 Parallel Tasks (from same source): If multiple tasks follow from the same node, arrange them vertically. Give them the same x value, but vary their y coordinate by 150-200 pixels up and down (e.g., B.y = A.y - 150, C.y = A.y + 150).
 For all other fields, use these default values: progressMode: "children", isDone: false.
+
+SCHEMATIC EXAMPLES OF WELL-STRUCTURED PLANS:
+
+Example 1: Data Engineer → Data Analyst Career Transition
+
+START[Become Data Analyst] →
+Assess current skills →
+  ├─> Learn analytical thinking → Business thinking → [Cases + Metrics] →
+  ├─> Learn BI tools → [Tableau/PowerBI + Storytelling] →        } → MILESTONE[Core skills ready] →
+  └─> Learn statistics → [A/B tests + Hypotheses] →              }
+
+MILESTONE[Core skills ready] →
+  ├─> EDA project →
+  ├─> Dashboard project →
+  ├─> A/B test analysis →          } → MILESTONE[Portfolio complete] →
+  ├─> Cohort analysis →            }
+  └─> Develop soft skills →        }
+
+MILESTONE[Portfolio complete] →
+  ├─> Apply externally →
+  └─> Internal transition → END ✓
+
+Example 2: UK Visitor Visa Application
+
+START[Get UK visitor visa] →
+Check legal status in Serbia →
+  ├─> Prepare passport & photos →
+  ├─> Get financial proof →
+  ├─> Prepare travel documents →          } → MILESTONE[All documents ready] →
+  └─> Get employment proof →              }
+
+MILESTONE[All documents ready] →
+Complete online application →
+Pay visa fee →
+Book VFS appointment →
+Attend VFS & provide biometrics →
+Wait for decision (3 weeks) →
+Collect passport with visa → END ✓
+
+Legend for schematic examples:
+- START[] = fundamental/downstream (main goal at the beginning)
+- MILESTONE[] = fundamental/upstream (important intermediate milestone)
+- ├─> and └─> = parallel branches from the same node
+- } → = parallel tasks converging to next node
+- Regular tasks = dao/simple
+- END ✓ = final completion (can be dao/simple or fundamental/upstream)
 
 Complete Example: From Request to JSON
 User Request: "I want to go to the store and buy milk and bread."
@@ -159,7 +303,7 @@ Your Final Response:
   ]
 }
 
-Remember: 
+Remember:
 - ALL parentId must be null
 - Relationships are defined ONLY through linkedNodeIds
 - Use fundamental/downstream ONLY for the main goal at the start
@@ -168,9 +312,18 @@ Remember:
 - Space nodes 300-1000 pixels apart horizontally depends on a title length
 - Use short titles for an every task. Don't write full title. Like "visit store at the road" > "visit store"
 - Space nodes 200-300 pixels apart vertically
-- Last node is always fundamental upstream as final goal
 - Font size is 18px, every node has more 15 px padding + it needs a space for edges like 100-200 px between each node. Calculate X regarding that.
-- Never make assymetric links where one node A is linked to B, but B isn't linked to A.
+- **CRITICAL:** linkedNodeIds must be PERFECTLY SYMMETRICAL. Every downstream link must have a matching upstream link and vice versa. Double-check EVERY node before finalizing the plan!
+- **CRITICAL:** Keep appropriate granularity - don't create micro-steps for obvious actions
+- When asking questions, use >>>>>ASK_QUESTIONS marker and ask ONE question at a time
+- Build conversation naturally, gathering information step by step
+- When send plan do not send anything but plan. No text before and no text after
+
+VALIDATION CHECKLIST before returning plan:
+1. Check each node's downstream array - does the target node have this node in upstream?
+2. Check each node's upstream array - does the source node have this node in downstream?
+3. If ANY link is missing its reverse, the plan will be rejected - FIX IT!
+4. Is the plan granularity appropriate? (not too detailed, not too vague)
 Next line is request
 `;
 
@@ -285,6 +438,68 @@ function validatePlan(planData) {
 }
 
 /**
+ * Auto-fix asymmetric links in the plan
+ */
+function fixAsymmetricLinks(planData) {
+  console.log('🔧 Checking and fixing asymmetric links...');
+  
+  const nodes = planData.nodes;
+  let fixedCount = 0;
+  
+  // First pass: ensure all downstream links have matching upstream links
+  nodes.forEach(node => {
+    if (node.linkedNodeIds?.downstream) {
+      node.linkedNodeIds.downstream.forEach(downstreamId => {
+        const downstreamNode = nodes.find(n => n.nodeId === downstreamId);
+        if (downstreamNode) {
+          if (!downstreamNode.linkedNodeIds) {
+            downstreamNode.linkedNodeIds = {};
+          }
+          if (!downstreamNode.linkedNodeIds.upstream) {
+            downstreamNode.linkedNodeIds.upstream = [];
+          }
+          if (!downstreamNode.linkedNodeIds.upstream.includes(node.nodeId)) {
+            console.log(`  ➕ Adding ${node.nodeId} to ${downstreamId}'s upstream`);
+            downstreamNode.linkedNodeIds.upstream.push(node.nodeId);
+            fixedCount++;
+          }
+        }
+      });
+    }
+  });
+  
+  // Second pass: ensure all upstream links have matching downstream links
+  nodes.forEach(node => {
+    if (node.linkedNodeIds?.upstream) {
+      node.linkedNodeIds.upstream.forEach(upstreamId => {
+        const upstreamNode = nodes.find(n => n.nodeId === upstreamId);
+        if (upstreamNode) {
+          if (!upstreamNode.linkedNodeIds) {
+            upstreamNode.linkedNodeIds = {};
+          }
+          if (!upstreamNode.linkedNodeIds.downstream) {
+            upstreamNode.linkedNodeIds.downstream = [];
+          }
+          if (!upstreamNode.linkedNodeIds.downstream.includes(node.nodeId)) {
+            console.log(`  ➕ Adding ${node.nodeId} to ${upstreamId}'s downstream`);
+            upstreamNode.linkedNodeIds.downstream.push(node.nodeId);
+            fixedCount++;
+          }
+        }
+      });
+    }
+  });
+  
+  if (fixedCount > 0) {
+    console.log(`✅ Fixed ${fixedCount} asymmetric links`);
+  } else {
+    console.log('✅ No asymmetric links found');
+  }
+  
+  return planData;
+}
+
+/**
  * Transform temporary node IDs to real UUIDs
  */
 function transformNodeIdsToUUID(planData) {
@@ -345,6 +560,25 @@ export async function sendMessageToAI(messages) {
 
     const content = completion.choices[0].message.content;
     
+    // DIAGNOSTIC: Log the full AI response
+    console.log('📋 Full AI Response:');
+    console.log('─'.repeat(80));
+    console.log(content);
+    console.log('─'.repeat(80));
+    
+    // Check if response contains clarifying questions
+    if (content.includes('>>>>>ASK_QUESTIONS')) {
+      const questionStartIndex = content.indexOf('>>>>>ASK_QUESTIONS');
+      const questionText = content.substring(questionStartIndex + '>>>>>ASK_QUESTIONS'.length).trim();
+      
+      console.log('❓ AI is asking clarifying questions');
+      
+      return {
+        type: 'text',
+        message: questionText
+      };
+    }
+    
     // Check if response contains a plan
     if (content.includes('>>>>>PLAN')) {
       const planStartIndex = content.indexOf('>>>>>PLAN');
@@ -353,7 +587,14 @@ export async function sendMessageToAI(messages) {
       
       try {
         // Parse JSON
-        const planData = JSON.parse(jsonString);
+        let planData = JSON.parse(jsonString);
+        
+        // DIAGNOSTIC: Log parsed plan structure
+        console.log('📊 Parsed plan data:');
+        console.log(JSON.stringify(planData, null, 2));
+        
+        // Auto-fix asymmetric links before validation
+        planData = fixAsymmetricLinks(planData);
         
         // Validate structure
         const validationErrors = validatePlan(planData);
@@ -371,6 +612,7 @@ export async function sendMessageToAI(messages) {
           };
         } else {
           console.error('❌ Plan validation errors:', validationErrors);
+          console.log('🔍 Failed plan data:', JSON.stringify(planData, null, 2));
           return {
             type: 'error',
             message: `Invalid plan received. Validation errors:\n${validationErrors.join('\n')}`
@@ -385,7 +627,7 @@ export async function sendMessageToAI(messages) {
       }
     }
     
-    // Regular text response
+    // Regular text response (fallback for responses without markers)
     return {
       type: 'text',
       message: content

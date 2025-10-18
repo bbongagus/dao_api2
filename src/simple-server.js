@@ -1042,10 +1042,16 @@ app.get('/api/analytics/categories/:graphId', async (req, res) => {
 
 // AI Planning endpoint (dynamic import to avoid startup crash if API key missing)
 app.post('/api/ai/generate-plan', async (req, res) => {
+  // DIAGNOSTIC: Log that this route is being hit
+  console.log('🔍 [Server] /api/ai/generate-plan endpoint HIT');
+  console.log('🔍 [Server] Request headers:', req.headers);
+  console.log('🔍 [Server] Request body:', JSON.stringify(req.body).substring(0, 200));
+  
   try {
     const { messages } = req.body;
     
     if (!messages || !Array.isArray(messages)) {
+      console.error('🔍 [Server] Invalid request - missing messages array');
       return res.status(400).json({
         success: false,
         error: 'messages array is required'
@@ -1062,11 +1068,17 @@ app.post('/api/ai/generate-plan', async (req, res) => {
     const formattedMessages = aiPlanning.formatMessagesForAPI(messages);
     const response = await aiPlanning.sendMessageToAI(formattedMessages);
     
+    console.log('🔍 [Server] Sending successful response');
     res.json({
       success: true,
       response
     });
   } catch (error) {
+    console.error('🔍 [Server] AI planning error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     console.error('❌ AI planning error:', error);
     res.status(500).json({
       success: false,
@@ -1074,6 +1086,9 @@ app.post('/api/ai/generate-plan', async (req, res) => {
     });
   }
 });
+
+// DIAGNOSTIC: Log that the route has been registered
+console.log('🔍 [Server] AI Planning route registered at POST /api/ai/generate-plan');
 
 // Health check
 app.get('/health', (req, res) => {
