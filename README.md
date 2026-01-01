@@ -175,6 +175,46 @@ docker logs -f optimistic-backend | grep -E "ADD_NODE|UPDATE_NODE|DELETE_NODE"
 - Verify SUBSCRIBE message was sent
 - Check for CORS issues if frontend on different port
 
+## 🚂 Production Deployment
+
+### Railway Deployment (Recommended)
+
+Deploy to Railway in minutes with full WebSocket and Redis support:
+
+1. **Create Railway Account**: [railway.app](https://railway.app)
+2. **Deploy from GitHub**: Connect your repository
+3. **Add Redis**: One-click Redis database
+4. **Configure**: Set environment variables (automatic for Redis)
+5. **Done!**: Your API is live with WebSocket support
+
+📚 **Full Guide**: See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) for detailed instructions.
+
+**Key Benefits:**
+- ✅ Full WebSocket support
+- ✅ Built-in Redis database
+- ✅ Auto-deploy from GitHub
+- ✅ Free $5/month credits
+- ✅ Custom domains
+- ✅ Automatic HTTPS
+
+**Quick Deploy:**
+```bash
+# Install Railway CLI
+npm i -g @railway/cli
+
+# Login and deploy
+railway login
+railway link
+railway up
+```
+
+**Environment Variables:**
+```bash
+NODE_ENV=production
+CORS_ORIGINS=https://your-frontend.vercel.app
+# REDIS_URL and PORT are set automatically by Railway
+```
+
 ## Architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system design.

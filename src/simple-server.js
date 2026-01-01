@@ -1,6 +1,8 @@
 /**
  * Simple Optimistic UI Server - Figma/Miro Style
  * Минимум абстракций, максимум производительности
+ *
+ * PERFORMANCE: Uses NodeIndex for O(1) node lookup instead of O(n) recursive search
  */
 
 import { WebSocketServer } from 'ws';
@@ -11,6 +13,7 @@ import redis from './redis.js'; // Import shared Redis client
 import SimplifiedAnalytics from './analytics-v2.js';
 import { CronJob } from 'cron';
 import progressSnapshots from './progress-snapshots.js';
+import { getNodeIndex } from './services/nodeIndex.js'; // O(1) node lookup
 
 // Default user ID for testing (matches frontend)
 const DEFAULT_USER_ID = '1';
@@ -134,14 +137,16 @@ async function getGraph(graphId, userId = DEFAULT_USER_ID) {
     
     if (!data) {
       console.log(`📭 Graph ${graphId} not found for user ${userId}, returning empty graph`);
-      // Return default empty graph
-      return {
+      // Return default empty graph with empty index
+      const emptyGraph = {
         nodes: [],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         version: 0,
         userId: userId
       };
+      getNodeIndex(graphId).buildIndex(emptyGraph);
+      return emptyGraph;
     }
     
     const graph = JSON.parse(data);
@@ -149,6 +154,11 @@ async function getGraph(graphId, userId = DEFAULT_USER_ID) {
     if (!graph.userId) {
       graph.userId = userId;
     }
+    
+    // Build NodeIndex for O(1) lookups - PERFORMANCE CRITICAL
+    const nodeIndex = getNodeIndex(graphId);
+    nodeIndex.buildIndex(graph);
+    console.log(`📊 NodeIndex built for graph ${graphId}: ${nodeIndex.size} nodes indexed`);
     
     console.log(`✅ Graph ${graphId} loaded for user ${userId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
     return graph;
@@ -214,7 +224,7 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
   const { type, payload } = operation;
 
   switch (type) {
-    case 'ADD_NODE':
+    case 'ADD_NODE': {
       // For new nodes, we need to add them to the correct parent
       const newNode = {
         id: payload.id,
@@ -230,6 +240,9 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
         children: payload.children || []
       };
       
+      // Get NodeIndex for O(1) operations
+      const nodeIndexForAdd = getNodeIndex(graphId);
+      
       // DIAGNOSTIC: Log linkedNodeIds status
       const linkedIdsCount = Object.keys(newNode.linkedNodeIds).length;
       console.log(`  📋 Adding node: id=${newNode.id}, title="${newNode.title}", isDone=${newNode.isDone}, completions=${newNode.currentCompletions}/${newNode.requiredCompletions}`);
@@ -242,38 +255,25 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
       
       let parentNode = null;
       
-      // If there's a parentId, find parent and add as child
+      // If there's a parentId, use O(1) lookup to find parent
       if (payload.parentId) {
-        console.log(`  Looking for parent ${payload.parentId} to add child ${payload.id}`);
-        const findAndAddToParent = (nodes, depth = 0) => {
-          for (let node of nodes) {
-            console.log(`    ${'  '.repeat(depth)}Checking node ${node.id}`);
-            if (node.id === payload.parentId) {
-              if (!node.children) node.children = [];
-              node.children.push(newNode);
-              console.log(`    ✅ Found parent and added child at depth ${depth}`);
-              parentNode = node; // Save reference to parent
-              
-              // Update parent's subtype if needed
-              if (node.nodeType === 'dao' && node.nodeSubtype === 'simple') {
-                node.nodeSubtype = 'withChildren';
-                console.log(`    📝 Updated parent subtype to 'withChildren'`);
-              } else if (node.nodeType === 'fundamental' && node.nodeSubtype === 'simple') {
-                node.nodeSubtype = 'category';
-                console.log(`    📝 Updated parent subtype to 'category'`);
-              }
-              
-              return true;
-            }
-            if (node.children && node.children.length > 0) {
-              if (findAndAddToParent(node.children, depth + 1)) return true;
-            }
-          }
-          return false;
-        };
+        console.log(`  Looking for parent ${payload.parentId} via O(1) index`);
+        parentNode = nodeIndexForAdd.getNode(payload.parentId);
         
-        const found = findAndAddToParent(graph.nodes);
-        if (!found) {
+        if (parentNode) {
+          if (!parentNode.children) parentNode.children = [];
+          parentNode.children.push(newNode);
+          console.log(`  ✅ Found parent via O(1) index and added child`);
+          
+          // Update parent's subtype if needed
+          if (parentNode.nodeType === 'dao' && parentNode.nodeSubtype === 'simple') {
+            parentNode.nodeSubtype = 'withChildren';
+            console.log(`    📝 Updated parent subtype to 'withChildren'`);
+          } else if (parentNode.nodeType === 'fundamental' && parentNode.nodeSubtype === 'simple') {
+            parentNode.nodeSubtype = 'category';
+            console.log(`    📝 Updated parent subtype to 'category'`);
+          }
+        } else {
           // If parent not found, add as root (but warn)
           console.warn(`  ⚠️ Parent ${payload.parentId} not found! Adding as root node`);
           graph.nodes.push(newNode);
@@ -284,25 +284,18 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
         graph.nodes.push(newNode);
       }
       
+      // Add to NodeIndex for future O(1) lookups
+      nodeIndexForAdd.addNode(newNode, payload.parentId || null);
+      
       // Log the resulting structure
-      console.log(`  📊 After ADD_NODE - Graph has ${graph.nodes.length} root nodes`);
-      let totalCount = 0;
-      const countAll = (nodes, depth = 0) => {
-        nodes.forEach(node => {
-          totalCount++;
-          if (node.children && node.children.length > 0) {
-            countAll(node.children, depth + 1);
-          }
-        });
-      };
-      countAll(graph.nodes);
-      console.log(`  📊 Total nodes in hierarchy: ${totalCount}`);
+      console.log(`  📊 After ADD_NODE - Graph has ${graph.nodes.length} root nodes, NodeIndex size: ${nodeIndexForAdd.size}`);
       
       // No need to track node creation - only progress updates matter
       
       break;
+    }
 
-    case 'UPDATE_NODE':
+    case 'UPDATE_NODE': {
       // Handle both payload.id and payload.nodeId for backward compatibility
       const nodeIdToUpdate = payload.id || payload.nodeId;
       console.log(`  📝 UPDATE_NODE for ${nodeIdToUpdate}:`, payload.updates);
@@ -312,156 +305,180 @@ async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
         break;
       }
       
-      // Recursively find and update node in hierarchy
-      const updateNodeRecursive = (nodes) => {
-        for (let node of nodes) {
-          if (node.id === nodeIdToUpdate) {
-            console.log(`  Found node ${nodeIdToUpdate}, current state: isDone=${node.isDone}, completions=${node.currentCompletions}/${node.requiredCompletions}`);
-            
-            // Update node properties
-            Object.assign(node, payload.updates);
-            
-            // Special handling for children array
-            if (payload.updates.children !== undefined) {
-              node.children = payload.updates.children;
-              console.log(`    Updated children array, now has ${node.children.length} children`);
-              
-              // DIAGNOSTIC: Check if children have linkedNodeIds
-              const childrenWithLinks = node.children.filter(c => c.linkedNodeIds && Object.keys(c.linkedNodeIds).length > 0);
-              if (childrenWithLinks.length > 0) {
-                console.log(`    🔗 ${childrenWithLinks.length} children have linkedNodeIds`);
-              }
-            }
-            
-            // DIAGNOSTIC: Log linkedNodeIds updates
-            if (payload.updates.linkedNodeIds !== undefined) {
-              node.linkedNodeIds = payload.updates.linkedNodeIds;
-              const linkedIdsCount = Object.keys(node.linkedNodeIds).length;
-              console.log(`    🔗 Updated linkedNodeIds: ${linkedIdsCount} connection types`);
-              if (linkedIdsCount > 0) {
-                Object.entries(node.linkedNodeIds).forEach(([type, ids]) => {
-                  console.log(`       ${type}: [${ids.join(', ')}]`);
-                });
-              }
-            }
-            
-            // Ensure progress fields are preserved/updated
-            if (payload.updates.isDone !== undefined) {
-              node.isDone = payload.updates.isDone;
-              console.log(`    Updated isDone to: ${node.isDone}`);
-            }
-            if (payload.updates.currentCompletions !== undefined) {
-              node.currentCompletions = payload.updates.currentCompletions;
-              console.log(`    Updated currentCompletions to: ${node.currentCompletions}`);
-            }
-            if (payload.updates.requiredCompletions !== undefined) {
-              node.requiredCompletions = payload.updates.requiredCompletions;
-              console.log(`    Updated requiredCompletions to: ${node.requiredCompletions}`);
-            }
-            if (payload.updates.nodeSubtype !== undefined) {
-              node.nodeSubtype = payload.updates.nodeSubtype;
-              console.log(`    Updated nodeSubtype to: ${node.nodeSubtype}`);
-            }
-            if (payload.updates.calculatedProgress !== undefined) {
-              node.calculatedProgress = payload.updates.calculatedProgress;
-              console.log(`    Updated calculatedProgress to: ${node.calculatedProgress}`);
-            }
-            
-            console.log(`  After update: isDone=${node.isDone}, completions=${node.currentCompletions}/${node.requiredCompletions}, progress=${node.calculatedProgress ? Math.round(node.calculatedProgress * 100) : 0}%`);
-            
-            // Track analytics for progress updates ONLY
-            if (payload.updates.isDone !== undefined || payload.updates.currentCompletions !== undefined) {
-              // Track all affected nodes (current + parents that calculate from it)
-              const affectedNodes = findAffectedNodes(graph.nodes, nodeIdToUpdate);
-              
-              for (const affectedNode of affectedNodes) {
-                const category = findNodeCategory(graph.nodes, affectedNode.id);
-                const nodePath = getNodePath(graph.nodes, affectedNode.id);
-                
-                // Calculate progress for each affected node
-                const currentProgress = calculateNodeProgress(affectedNode);
-                
-                // Save calculatedProgress for affected nodes (especially important for fundamental nodes)
-                if (affectedNode.nodeType === 'fundamental') {
-                  affectedNode.calculatedProgress = currentProgress / 100; // Store as 0-1 value
-                  console.log(`    Saved calculatedProgress=${affectedNode.calculatedProgress} for fundamental node ${affectedNode.id}`);
-                }
-                
-                // Track progress update in simplified analytics
-                analytics.trackProgressUpdate(DEFAULT_USER_ID, graphId, affectedNode.id, {
-                  nodeTitle: affectedNode.title || affectedNode.name || 'Unknown',
-                  nodePath: nodePath,
-                  nodeType: affectedNode.nodeType,
-                  nodeSubtype: affectedNode.nodeSubtype,
-                  categoryId: category ? category.id : null,
-                  categoryName: category ? (category.title || category.name) : null,
-                  previousProgress: affectedNode.previousProgress || 0,
-                  currentProgress: currentProgress,
-                  isDone: affectedNode.isDone,
-                  previousIsDone: affectedNode.previousIsDone,
-                  currentCompletions: affectedNode.currentCompletions || 0,
-                  requiredCompletions: affectedNode.requiredCompletions || 1
-                });
-                
-                console.log(`  📊 Analytics: Tracked progress ${currentProgress}% for affected node ${affectedNode.id}`);
-              }
-            }
-            
-            return true;
-          }
-          if (node.children && node.children.length > 0) {
-            if (updateNodeRecursive(node.children)) return true;
+      // O(1) lookup via NodeIndex instead of O(n) recursive search
+      const nodeIndex = getNodeIndex(graphId);
+      const node = nodeIndex.getNode(nodeIdToUpdate);
+      
+      if (!node) {
+        console.log(`  ⚠️ Node ${nodeIdToUpdate} not found for update`);
+        break;
+      }
+      
+      console.log(`  Found node ${nodeIdToUpdate} via O(1) index, current state: isDone=${node.isDone}, completions=${node.currentCompletions}/${node.requiredCompletions}`);
+      
+      // Update node properties
+      Object.assign(node, payload.updates);
+      
+      // Special handling for children array
+      if (payload.updates.children !== undefined) {
+        node.children = payload.updates.children;
+        console.log(`    Updated children array, now has ${node.children.length} children`);
+        
+        // Re-index children in NodeIndex
+        for (const child of node.children) {
+          if (!nodeIndex.hasNode(child.id)) {
+            nodeIndex.addNode(child, node.id);
           }
         }
-        return false;
-      };
-      const updated = updateNodeRecursive(graph.nodes);
-      if (updated) {
-        console.log(`  ✅ Node ${nodeIdToUpdate} updated successfully`);
-      } else {
-        console.log(`  ⚠️ Node ${nodeIdToUpdate} not found for update`);
+        
+        // DIAGNOSTIC: Check if children have linkedNodeIds
+        const childrenWithLinks = node.children.filter(c => c.linkedNodeIds && Object.keys(c.linkedNodeIds).length > 0);
+        if (childrenWithLinks.length > 0) {
+          console.log(`    🔗 ${childrenWithLinks.length} children have linkedNodeIds`);
+        }
+      }
+      
+      // DIAGNOSTIC: Log linkedNodeIds updates
+      if (payload.updates.linkedNodeIds !== undefined) {
+        node.linkedNodeIds = payload.updates.linkedNodeIds;
+        const linkedIdsCount = Object.keys(node.linkedNodeIds).length;
+        console.log(`    🔗 Updated linkedNodeIds: ${linkedIdsCount} connection types`);
+        if (linkedIdsCount > 0) {
+          Object.entries(node.linkedNodeIds).forEach(([type, ids]) => {
+            console.log(`       ${type}: [${ids.join(', ')}]`);
+          });
+        }
+      }
+      
+      // Ensure progress fields are preserved/updated
+      if (payload.updates.isDone !== undefined) {
+        node.isDone = payload.updates.isDone;
+        console.log(`    Updated isDone to: ${node.isDone}`);
+      }
+      if (payload.updates.currentCompletions !== undefined) {
+        node.currentCompletions = payload.updates.currentCompletions;
+        console.log(`    Updated currentCompletions to: ${node.currentCompletions}`);
+      }
+      if (payload.updates.requiredCompletions !== undefined) {
+        node.requiredCompletions = payload.updates.requiredCompletions;
+        console.log(`    Updated requiredCompletions to: ${node.requiredCompletions}`);
+      }
+      if (payload.updates.nodeSubtype !== undefined) {
+        node.nodeSubtype = payload.updates.nodeSubtype;
+        console.log(`    Updated nodeSubtype to: ${node.nodeSubtype}`);
+      }
+      if (payload.updates.calculatedProgress !== undefined) {
+        node.calculatedProgress = payload.updates.calculatedProgress;
+        console.log(`    Updated calculatedProgress to: ${node.calculatedProgress}`);
+      }
+      
+      // Update title in path cache if changed
+      if (payload.updates.title !== undefined) {
+        nodeIndex.updatePath(nodeIdToUpdate);
+      }
+      
+      console.log(`  After update: isDone=${node.isDone}, completions=${node.currentCompletions}/${node.requiredCompletions}, progress=${node.calculatedProgress ? Math.round(node.calculatedProgress * 100) : 0}%`);
+      
+      // Track analytics for progress updates ONLY
+      if (payload.updates.isDone !== undefined || payload.updates.currentCompletions !== undefined) {
+        // Get affected nodes via O(1) ancestor lookup
+        const affectedNodeIds = [nodeIdToUpdate, ...nodeIndex.getAncestorIds(nodeIdToUpdate)];
+        
+        for (const affectedId of affectedNodeIds) {
+          const affectedNode = nodeIndex.getNode(affectedId);
+          if (!affectedNode) continue;
+          
+          const parentNode = nodeIndex.getParent(affectedId);
+          const category = (parentNode && parentNode.nodeType === 'fundamental' && parentNode.nodeSubtype === 'category')
+            ? parentNode : null;
+          const nodePath = nodeIndex.getPath(affectedId);
+          
+          // Calculate progress for each affected node
+          const currentProgress = calculateNodeProgress(affectedNode);
+          
+          // Save calculatedProgress for affected nodes (especially important for fundamental nodes)
+          if (affectedNode.nodeType === 'fundamental') {
+            affectedNode.calculatedProgress = currentProgress / 100; // Store as 0-1 value
+            console.log(`    Saved calculatedProgress=${affectedNode.calculatedProgress} for fundamental node ${affectedId}`);
+          }
+          
+          // Track progress update in simplified analytics
+          analytics.trackProgressUpdate(DEFAULT_USER_ID, graphId, affectedId, {
+            nodeTitle: affectedNode.title || affectedNode.name || 'Unknown',
+            nodePath: nodePath,
+            nodeType: affectedNode.nodeType,
+            nodeSubtype: affectedNode.nodeSubtype,
+            categoryId: category ? category.id : null,
+            categoryName: category ? (category.title || category.name) : null,
+            previousProgress: affectedNode.previousProgress || 0,
+            currentProgress: currentProgress,
+            isDone: affectedNode.isDone,
+            previousIsDone: affectedNode.previousIsDone,
+            currentCompletions: affectedNode.currentCompletions || 0,
+            requiredCompletions: affectedNode.requiredCompletions || 1
+          });
+          
+          console.log(`  📊 Analytics: Tracked progress ${currentProgress}% for affected node ${affectedId}`);
+        }
+      }
+      
+      console.log(`  ✅ Node ${nodeIdToUpdate} updated successfully via O(1) index`);
+      break;
+    }
+
+    case 'UPDATE_NODE_POSITION': {
+      // O(1) lookup via NodeIndex - PERFORMANCE CRITICAL for drag operations
+      const nodeIndexForPosition = getNodeIndex(graphId);
+      const nodeToUpdate = nodeIndexForPosition.getNode(payload.nodeId);
+      
+      if (nodeToUpdate) {
+        nodeToUpdate.position = payload.position;
+        // No logging here - called 60 times/sec during drag
       }
       break;
+    }
 
-    case 'UPDATE_NODE_POSITION':
-      // Recursively find and update node position in hierarchy
-      const updatePositionRecursive = (nodes) => {
-        for (let node of nodes) {
-          if (node.id === payload.nodeId) {
-            node.position = payload.position;
-            return true;
-          }
-          if (node.children && node.children.length > 0) {
-            if (updatePositionRecursive(node.children)) return true;
-          }
-        }
-        return false;
-      };
-      updatePositionRecursive(graph.nodes);
-      break;
-
-    case 'DELETE_NODE':
-      // Recursively remove node from hierarchy
-      const removeNodeRecursive = (nodes) => {
-        for (let i = 0; i < nodes.length; i++) {
-          if (nodes[i].id === payload.nodeId) {
-            nodes.splice(i, 1);
-            return true;
-          }
-          if (nodes[i].children && nodes[i].children.length > 0) {
-            if (removeNodeRecursive(nodes[i].children)) return true;
-          }
-        }
-        return false;
-      };
+    case 'DELETE_NODE': {
+      // O(1) lookup to find the node and its parent
+      const nodeIndexForDelete = getNodeIndex(graphId);
+      const nodeToDelete = nodeIndexForDelete.getNode(payload.nodeId);
       
-      removeNodeRecursive(graph.nodes);
+      if (!nodeToDelete) {
+        console.log(`  ⚠️ Node ${payload.nodeId} not found for deletion`);
+        break;
+      }
+      
+      // Get parent to remove from children array
+      const parentId = nodeIndexForDelete.getParentId(payload.nodeId);
+      
+      if (parentId) {
+        // Node is a child - remove from parent's children
+        const parent = nodeIndexForDelete.getNode(parentId);
+        if (parent && parent.children) {
+          const index = parent.children.findIndex(c => c.id === payload.nodeId);
+          if (index !== -1) {
+            parent.children.splice(index, 1);
+            console.log(`  🗑️ Removed node ${payload.nodeId} from parent ${parentId}`);
+          }
+        }
+      } else {
+        // Node is a root node - remove from graph.nodes
+        const index = graph.nodes.findIndex(n => n.id === payload.nodeId);
+        if (index !== -1) {
+          graph.nodes.splice(index, 1);
+          console.log(`  🗑️ Removed root node ${payload.nodeId}`);
+        }
+      }
+      
+      // Remove from NodeIndex (also removes children)
+      nodeIndexForDelete.removeNode(payload.nodeId);
       
       // Also remove edges connected to this node
       graph.edges = graph.edges.filter(e =>
         e.source !== payload.nodeId && e.target !== payload.nodeId
       );
       break;
+    }
 
     case 'ADD_EDGE':
       graph.edges.push({

@@ -1,12 +1,14 @@
 {
   "name": "dao-optimistic-backend",
   "version": "2.0.0",
-  "description": "Simple Optimistic UI Backend - Figma/Miro Style",
-  "main": "src/simple-server.js",
+  "description": "Simple Optimistic UI Backend - Figma/Miro Style (Refactored)",
+  "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node src/simple-server.js",
-    "dev": "nodemon src/simple-server.js",
+    "start": "node src/server.js",
+    "start:legacy": "node src/simple-server.js",
+    "dev": "nodemon src/server.js",
+    "dev:legacy": "nodemon src/simple-server.js",
     "docker:up": "docker-compose -f docker-compose.clean.yml up -d",
     "docker:down": "docker-compose -f docker-compose.clean.yml down",
     "docker:logs": "docker-compose -f docker-compose.clean.yml logs -f",
