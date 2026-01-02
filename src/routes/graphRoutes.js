@@ -1,11 +1,12 @@
 /**
  * Graph Routes - Extracted from simple-server.js
  * REST API endpoints for graph operations
- * Copied from simple-server.js lines 762-843, 846-894
+ * Includes Daily Completions endpoints for eye-toggle feature
  */
 
 import express from 'express';
 import { DEFAULT_USER_ID } from '../services/graphService.js';
+import dailyCompletions from '../services/dailyCompletions.js';
 
 const router = express.Router();
 
@@ -149,6 +150,88 @@ export function setupGraphRoutes(deps) {
         graphs: ['main', 'project1', 'ideas']
       });
     } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // ============================================
+  // Daily Completions endpoints (eye-toggle feature)
+  // ============================================
+
+  /**
+   * GET /api/graphs/:graphId/daily-completions
+   * Returns list of node IDs completed today
+   */
+  router.get('/graphs/:graphId/daily-completions', async (req, res) => {
+    try {
+      const { graphId } = req.params;
+      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+      
+      const completions = await dailyCompletions.getCompletionIds(userId, graphId);
+      const today = new Date().toISOString().split('T')[0];
+      
+      res.json({
+        success: true,
+        date: today,
+        completions: completions,
+        count: completions.length
+      });
+    } catch (error) {
+      console.error('Failed to get daily completions:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * GET /api/graphs/:graphId/daily-completions/details
+   * Returns detailed completions with timestamps
+   */
+  router.get('/graphs/:graphId/daily-completions/details', async (req, res) => {
+    try {
+      const { graphId } = req.params;
+      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+      
+      const completions = await dailyCompletions.getCompletions(userId, graphId);
+      const today = new Date().toISOString().split('T')[0];
+      
+      res.json({
+        success: true,
+        date: today,
+        completions: completions,
+        count: completions.length
+      });
+    } catch (error) {
+      console.error('Failed to get daily completions details:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * DELETE /api/graphs/:graphId/daily-completions
+   * Clears today's completions (manual reset)
+   */
+  router.delete('/graphs/:graphId/daily-completions', async (req, res) => {
+    try {
+      const { graphId } = req.params;
+      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+      
+      await dailyCompletions.clearCompletions(userId, graphId);
+      
+      res.json({
+        success: true,
+        message: 'Daily completions cleared'
+      });
+    } catch (error) {
+      console.error('Failed to clear daily completions:', error);
       res.status(500).json({
         success: false,
         error: error.message

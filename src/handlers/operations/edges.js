@@ -12,6 +12,13 @@ import { logger } from '../../utils/logger.js';
  * @returns {boolean} - Success status
  */
 export function handleAddEdge(graph, payload) {
+  // Check if edge already exists (prevent duplicates)
+  const existingEdge = graph.edges.find(e => e.id === payload.id);
+  if (existingEdge) {
+    logger.warn(`Edge ${payload.id} already exists, skipping duplicate add`);
+    return true; // Return true as this is not an error
+  }
+  
   const newEdge = {
     id: payload.id,
     source: payload.source,

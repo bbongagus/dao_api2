@@ -19,25 +19,25 @@ import { handleUpdateViewport } from './viewport.js';
  * Signature: (graph, payload, graphId, analytics, nodeIndex) => boolean
  */
 const operationHandlers = {
-  ADD_NODE: (graph, payload, graphId, analytics, nodeIndex) => 
+  ADD_NODE: (graph, payload, graphId, analytics, nodeIndex, userId) =>
     handleAddNode(graph, payload, nodeIndex),
   
-  UPDATE_NODE: (graph, payload, graphId, analytics, nodeIndex) => 
-    handleUpdateNode(graph, payload, graphId, analytics, nodeIndex),
+  UPDATE_NODE: (graph, payload, graphId, analytics, nodeIndex, userId) =>
+    handleUpdateNode(graph, payload, graphId, analytics, nodeIndex, userId),
   
-  UPDATE_NODE_POSITION: (graph, payload, graphId, analytics, nodeIndex) => 
+  UPDATE_NODE_POSITION: (graph, payload, graphId, analytics, nodeIndex, userId) =>
     handleUpdateNodePosition(graph, payload, nodeIndex),
   
-  DELETE_NODE: (graph, payload, graphId, analytics, nodeIndex) => 
+  DELETE_NODE: (graph, payload, graphId, analytics, nodeIndex, userId) =>
     handleDeleteNode(graph, payload, nodeIndex),
   
-  ADD_EDGE: (graph, payload) => 
+  ADD_EDGE: (graph, payload) =>
     handleAddEdge(graph, payload),
   
-  DELETE_EDGE: (graph, payload) => 
+  DELETE_EDGE: (graph, payload) =>
     handleDeleteEdge(graph, payload),
   
-  UPDATE_VIEWPORT: (graph, payload) => 
+  UPDATE_VIEWPORT: (graph, payload) =>
     handleUpdateViewport(graph, payload),
 };
 
@@ -49,9 +49,10 @@ const operationHandlers = {
  * @param {string} graphId - Graph ID (for analytics)
  * @param {Object} analytics - Analytics service
  * @param {Object} nodeIndex - NodeIndex for O(1) lookups
+ * @param {string} userId - User ID for daily completions tracking
  * @returns {boolean} - Success status
  */
-export function routeOperation(type, graph, payload, graphId, analytics, nodeIndex) {
+export function routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId) {
   const handler = operationHandlers[type];
   
   if (!handler) {
@@ -61,7 +62,7 @@ export function routeOperation(type, graph, payload, graphId, analytics, nodeInd
   
   logger.operation(type, { nodeId: payload.id || payload.nodeId || payload.edgeId });
   
-  return handler(graph, payload, graphId, analytics, nodeIndex);
+  return handler(graph, payload, graphId, analytics, nodeIndex, userId);
 }
 
 // Export individual handlers for direct access if needed

@@ -1,18 +1,20 @@
 /**
  * UPDATE_NODE Operation Handler
  * Extracted from operationHandler.js
- * 
+ *
  * Performance: Uses NodeIndex for O(1) lookup when available
+ * Now with Daily Completions tracking for eye-toggle feature
  */
 
 import { logger } from '../../utils/logger.js';
-import { 
-  DEFAULT_USER_ID, 
-  calculateNodeProgress, 
-  findNodeCategory, 
+import {
+  DEFAULT_USER_ID,
+  calculateNodeProgress,
+  findNodeCategory,
   getNodePath,
-  findAffectedNodes 
+  findAffectedNodes
 } from '../../services/graphService.js';
+import dailyCompletions from '../../services/dailyCompletions.js';
 
 /**
  * Handle UPDATE_NODE operation
@@ -21,9 +23,10 @@ import {
  * @param {string} graphId - Graph ID for analytics
  * @param {Object} analytics - Analytics service
  * @param {Object} nodeIndex - NodeIndex for O(1) lookup (optional)
+ * @param {string} userId - User ID for daily completions tracking
  * @returns {boolean} - Success status
  */
-export function handleUpdateNode(graph, payload, graphId, analytics, nodeIndex = null) {
+export function handleUpdateNode(graph, payload, graphId, analytics, nodeIndex = null, userId = DEFAULT_USER_ID) {
   // Handle both payload.id and payload.nodeId for backward compatibility
   const nodeIdToUpdate = payload.id || payload.nodeId;
   logger.debug(`UPDATE_NODE for ${nodeIdToUpdate}:`, payload.updates);
@@ -51,8 +54,16 @@ export function handleUpdateNode(graph, payload, graphId, analytics, nodeIndex =
     return false;
   }
   
+  // Save previous isDone state for daily completions tracking
+  const previousIsDone = node.isDone;
+  
   // Apply updates to node
   applyNodeUpdates(node, payload.updates);
+  
+  // Track daily completions (isDone changed) - pass userId for per-user tracking
+  if (payload.updates.isDone !== undefined && payload.updates.isDone !== previousIsDone) {
+    trackDailyCompletion(nodeIdToUpdate, graphId, previousIsDone, payload.updates.isDone, userId);
+  }
   
   // Track analytics for progress updates ONLY
   if (analytics && (payload.updates.isDone !== undefined || payload.updates.currentCompletions !== undefined)) {
@@ -176,6 +187,36 @@ function trackProgressAnalytics(graph, node, nodeIdToUpdate, graphId, analytics,
     });
     
     logger.analytics(`Tracked progress ${currentProgress}% for affected node ${affectedNode.id}`);
+  }
+}
+
+/**
+ * Track daily completion changes
+ * Adds/removes node from today's completions list
+ * @param {string} nodeId - Node ID
+ * @param {string} graphId - Graph ID
+ * @param {boolean} previousIsDone - Previous isDone state
+ * @param {boolean} newIsDone - New isDone state
+ * @param {string} userId - User ID for per-user tracking
+ */
+async function trackDailyCompletion(nodeId, graphId, previousIsDone, newIsDone, userId = DEFAULT_USER_ID) {
+  logger.info(`📅 trackDailyCompletion: nodeId=${nodeId}, graphId=${graphId}, userId=${userId}, prev=${previousIsDone}, new=${newIsDone}`);
+  
+  try {
+    // Node marked as done (false → true)
+    if (newIsDone && !previousIsDone) {
+      await dailyCompletions.addCompletion(userId, graphId, nodeId);
+      logger.success(`📅 Added ${nodeId} to daily completions for user ${userId}`);
+    }
+    
+    // Node unmarked (true → false)
+    if (!newIsDone && previousIsDone) {
+      await dailyCompletions.removeCompletion(userId, graphId, nodeId);
+      logger.success(`📅 Removed ${nodeId} from daily completions for user ${userId}`);
+    }
+  } catch (error) {
+    // Don't fail the update if daily tracking fails
+    logger.error('📅 Failed to track daily completion:', error);
   }
 }
 

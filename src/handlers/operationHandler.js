@@ -38,8 +38,8 @@ export function createOperationHandler(deps) {
     // Get NodeIndex for O(1) lookups
     const nodeIndex = getNodeIndex ? getNodeIndex(graphId, userId) : null;
     
-    // Route to appropriate handler
-    const success = routeOperation(type, graph, payload, graphId, analytics, nodeIndex);
+    // Route to appropriate handler - pass userId for daily completions tracking
+    const success = routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId);
     
     if (!success) {
       logger.error(`Operation ${type} failed`);

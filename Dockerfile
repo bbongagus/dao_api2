@@ -24,6 +24,6 @@ USER nodejs
 # Открываем правильный порт (соответствует docker-compose.yml)
 EXPOSE 3001
 
-# Запускаем приложение
+# Запускаем приложение (новый рефакторенный сервер)
 # Используем node напрямую для ES6 модулей
-CMD ["node", "src/simple-server.js"]
+CMD ["node", "src/server.js"]
