@@ -20,6 +20,7 @@ import redis from './redis.js';
 // Import services
 import SimplifiedAnalytics from './analytics-v2.js';
 import progressSnapshots from './progress-snapshots.js';
+import dailyHabitCounter from './services/dailyHabitCounter.js';
 import { DEFAULT_USER_ID } from './services/graphService.js';
 import { getNodeIndex, clearNodeIndex } from './services/nodeIndex.js';
 
@@ -217,6 +218,25 @@ setTimeout(async () => {
 }, 5000);
 
 logger.success('Progress Snapshots Service initialized');
+
+// Initialize daily habit counter job at 00:00 every day
+const habitCounterJob = new CronJob(
+  '0 0 * * *',
+  async () => {
+    logger.info('🌙 Running daily habit counter job...');
+    try {
+      const result = await dailyHabitCounter.processAllGraphs(DEFAULT_USER_ID);
+      logger.success(
+        `🌙 Daily habit counter completed: ${result.incrementedCount}/${result.processedCount} nodes incremented`
+      );
+    } catch (error) {
+      logger.error('🌙 Daily habit counter failed:', error);
+    }
+  },
+  null,
+  true,
+  'Europe/Belgrade'
+);
 
 // Start server
 const PORT = process.env.PORT || 3001;
