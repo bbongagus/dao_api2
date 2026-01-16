@@ -46,6 +46,10 @@ services:
       # Монтируем src для горячей перезагрузки в dev режиме (опционально)
       - ./src:/app/src:ro
       - ./package.json:/app/package.json:ro
+      # Монтируем скрипты для ручного запуска
+      - ./reset-repeatable-nodes.js:/app/reset-repeatable-nodes.js:ro
+      - ./trigger-daily-reset.js:/app/trigger-daily-reset.js:ro
+      - ./trigger-snapshot.js:/app/trigger-snapshot.js:ro
 
 networks:
   optimistic-network:

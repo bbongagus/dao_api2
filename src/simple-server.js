@@ -53,6 +53,62 @@ const snapshotJob = new CronJob(
   'Europe/Belgrade' // Timezone
 );
 
+// Initialize daily repeatable nodes reset job at 00:00 every day
+const repeatableResetJob = new CronJob(
+  '0 0 * * *', // At midnight every day
+  async () => {
+    console.log('🔄 Running daily repeatable nodes reset...');
+    try {
+      // For MVP - reset for default user
+      // In production, this would iterate through all active users
+      const userId = DEFAULT_USER_ID;
+      const graphId = 'main';
+      
+      const graph = await getGraph(graphId, userId);
+      if (!graph || !graph.nodes) {
+        console.log('ℹ️  No graph data found for repeatable reset');
+        return;
+      }
+      
+      let updatedCount = 0;
+      
+      // Reset repeatable nodes recursively
+      const resetRepeatableNodes = (nodes) => {
+        nodes.forEach(node => {
+          if (node.nodeType === 'repeatable' && node.isDone === true) {
+            // Node was completed today - increment counter and reset flag
+            node.isDone = false;
+            node.currentCompletions = (node.currentCompletions || 0) + 1;
+            console.log(`  ✅ Reset "${node.title}": completions now ${node.currentCompletions}`);
+            updatedCount++;
+          }
+          // If isDone === false, node was not completed today - do nothing
+          
+          if (node.children && node.children.length > 0) {
+            resetRepeatableNodes(node.children);
+          }
+        });
+      };
+      
+      resetRepeatableNodes(graph.nodes);
+      
+      if (updatedCount > 0) {
+        await saveGraph(graphId, graph, userId);
+        console.log(`✅ Daily repeatable reset completed: ${updatedCount} nodes updated`);
+      } else {
+        console.log('ℹ️  No repeatable nodes to reset (none were completed today)');
+      }
+    } catch (error) {
+      console.error('❌ Daily repeatable reset failed:', error);
+    }
+  },
+  null,
+  true, // Start the job right away
+  'Europe/Belgrade' // Timezone
+);
+
+console.log('✅ Repeatable Nodes Daily Reset Job initialized');
+
 // Also run snapshot on startup for testing
 setTimeout(async () => {
   console.log('📸 Running initial progress snapshot...');

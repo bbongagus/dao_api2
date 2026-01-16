@@ -174,3 +174,34 @@ Successfully deployed production-ready backend to Railway with:
 **Current Risk**: Without userId, all users share same graph (DEFAULT_USER_ID = '1')
 
 **Priority**: High - affects data isolation in multi-user scenarios
+
+## Recent Development (2026-01-16)
+
+### ✅ Repeatable Nodes Refactoring - COMPLETED
+
+- [x] Analyzed current repeatable nodes implementation (bounded + infinity modes)
+- [x] Designed simplified single-mode architecture with backend-managed accumulation
+- [x] Implemented backend cron job for midnight reset logic
+- [x] Simplified frontend toggleDone() to only toggle isDone flag
+- [x] Removed bounded/infinity distinction in node creation
+- [x] Simplified RepeatableNode.jsx UI (circle + cumulative counter)
+- [x] Tested backend logic with manual reset script
+- [x] Updated memory bank documentation
+
+**Impact**: Repeatable nodes now have simpler, more reliable daily tracking with cumulative progress managed by backend cron job.
+
+**Key Changes:**
+- Frontend: Only manages `isDone` flag (simple toggle)
+- Backend: Cron job at midnight increments `currentCompletions` for completed nodes
+- UI: Shows circle (today's status) + number (total days completed)
+
+**Testing Confirmed:**
+- ✅ Backend cron job increments `currentCompletions` correctly
+- ✅ `isDone` resets to `false` after increment
+- ✅ Nodes not completed (isDone=false) remain unchanged
+
+**Files Modified:**
+- `dao_api2/src/simple-server.js` - Added repeatable reset cron job
+- `graphy/stores/models/TreeModels.js` - Simplified toggleDone()
+- `graphy/components/FlowDiagram/FlowDiagramTree.jsx` - Updated node creation
+- `graphy/components/FlowDiagram/nodes/RepeatableNode.jsx` - Simplified UI

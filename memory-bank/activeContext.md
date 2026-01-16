@@ -3,6 +3,7 @@
 This file tracks the project's current status, including recent changes, current goals, and open questions.
 
 2025-01-08 13:32:00 - Memory Bank initialized after Railway deployment completion.
+2026-01-16 12:50:00 - Repeatable nodes refactored for simplified daily tracking with backend cron job.
 
 ## Current Focus
 
@@ -227,3 +228,58 @@ if (!data.userId) {
 - Add user authentication layer in future
 
 **Status:** Logged warning exists, frontend integration needed
+
+## Recent Code Changes (2026-01-16)
+
+### Repeatable Nodes Refactoring - COMPLETED
+
+**Goal**: Simplify repeatable nodes to have only ONE behavior pattern with backend-managed cumulative progress.
+
+**Files Modified:**
+
+1. **Backend**: [`src/simple-server.js`](../src/simple-server.js) - Lines 57-109
+   - Added repeatable nodes cron job at midnight (00:00)
+   - Logic: If `isDone === true`, set `isDone = false` and increment `currentCompletions`
+   - If `isDone === false`, do nothing (node was not completed)
+
+2. **Frontend**: [`graphy/stores/models/TreeModels.js`](../../graphy/stores/models/TreeModels.js) - Line 344
+   - Simplified `toggleDone()` for repeatable nodes
+   - Removed bounded/infinity logic
+   - Frontend only toggles `isDone` flag
+   - `currentCompletions` NOT changed on click
+
+3. **Frontend**: [`graphy/components/FlowDiagram/FlowDiagramTree.jsx`](../../graphy/components/FlowDiagram/FlowDiagramTree.jsx) - Lines 730-1139
+   - Changed default from `'bounded'` to no nodeSubtype
+   - Removed bounded/infinity distinction
+
+4. **Frontend**: [`graphy/components/FlowDiagram/nodes/RepeatableNode.jsx`](../../graphy/components/FlowDiagram/nodes/RepeatableNode.jsx)
+   - Removed bounded/infinity modes
+   - Simplified UI: circle (isDone) + number (currentCompletions)
+   - Removed progress bar
+
+**New Behavior:**
+
+Day 1: Click → `isDone: true`, `currentCompletions: 0`
+Midnight: Backend → `isDone: false`, `currentCompletions: 1` ✅
+
+Day 2: Click → `isDone: true`, `currentCompletions: 1`
+Midnight: Backend → `isDone: false`, `currentCompletions: 2` ✅
+
+Day 3: SKIP (no click) → `isDone: false`, `currentCompletions: 2`
+Midnight: Backend → No change (isDone was false) ✅
+
+Day 4: Click → `isDone: true`, `currentCompletions: 2`
+Midnight: Backend → `isDone: false`, `currentCompletions: 3` ✅
+
+**Result**: `currentCompletions` shows total days completed (cumulative counter)
+
+**Testing Results:**
+- ✅ Backend cron job created successfully
+- ✅ Test script confirms logic works:
+  - Noda 1: `currentCompletions: 1 → 2`
+  - Noda 2: `currentCompletions: 8 → 9`
+- ✅ Frontend updated to refresh and show new values
+
+**Documentation Created:**
+- [`graphy/REPEATABLE_NODES_REFACTORING_PLAN.md`](../../graphy/REPEATABLE_NODES_REFACTORING_PLAN.md) - Complete refactoring plan
+- [`dao_api2/test-repeatable-reset.js`](../test-repeatable-reset.js) - Test script for manual reset

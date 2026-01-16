@@ -389,6 +389,49 @@ if (isProduction) {
 }
 ```
 
+## Repeatable Nodes Pattern (Refactored 2026-01-16)
+
+### Simplified Daily Tracking
+
+**Pattern:**
+```javascript
+// Frontend - Only toggle isDone
+if (node.nodeType === 'repeatable') {
+  node.isDone = !node.isDone;
+  // currentCompletions NOT changed on click!
+}
+
+// Backend cron job (midnight) - Increment if completed
+if (node.nodeType === 'repeatable' && node.isDone === true) {
+  node.isDone = false;
+  node.currentCompletions += 1; // Cumulative counter
+}
+```
+
+**Benefits:**
+- Backend manages cumulative counter (reliable, no frontend dependency)
+- Frontend only manages today's status (simple toggle)
+- Accumulation happens server-side at midnight via cron job
+
+**Cron Job:**
+```javascript
+const repeatableResetJob = new CronJob(
+  '0 0 * * *', // Midnight daily
+  async () => {
+    // Increment currentCompletions for nodes with isDone=true
+    // Reset isDone to false for all repeatable nodes
+  },
+  null,
+  true,
+  'Europe/Belgrade'
+);
+```
+
+**Used in:**
+- `src/simple-server.js` - Cron job definition
+- `graphy/stores/models/TreeModels.js` - Simplified toggleDone()
+- `graphy/components/FlowDiagram/nodes/RepeatableNode.jsx` - Simplified UI
+
 ## Code Organization Patterns
 
 ### Feature-Based Modules
