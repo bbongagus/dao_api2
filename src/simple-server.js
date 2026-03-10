@@ -271,9 +271,37 @@ async function addOperation(graphId, operation) {
 }
 
 /**
- * Apply operation to graph
+ * Per-graph operation queue: ensures operations run sequentially.
+ * Without this, rapid operations read the same graph version and last save wins.
  */
-async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
+const graphQueues = new Map();
+let opSeq = 0;
+
+function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
+  const lockKey = `${userId}:${graphId}`;
+  const seq = ++opSeq;
+  const prev = graphQueues.get(lockKey) || Promise.resolve();
+
+  const task = prev.then(async () => {
+    console.log(`🔒 [QUEUE #${seq}] START ${operation.type} for ${lockKey}`);
+    try {
+      const result = await _executeOperation(graphId, operation, userId);
+      console.log(`🔓 [QUEUE #${seq}] DONE ${operation.type} for ${lockKey}`);
+      return result;
+    } catch (error) {
+      console.error(`🔓 [QUEUE #${seq}] ERROR ${operation.type}: ${error.message}`);
+      return null;
+    }
+  });
+
+  graphQueues.set(lockKey, task.catch(() => {}));
+  return task;
+}
+
+/**
+ * Apply operation to graph (executed inside the queue)
+ */
+async function _executeOperation(graphId, operation, userId = DEFAULT_USER_ID) {
   const graph = await getGraph(graphId, userId);
   if (!graph) return null;
 
