@@ -175,6 +175,12 @@ async function handleOperation(data, clientInfo, clientId, ws, clients, applyOpe
     }
   } else {
     logger.error(`Failed to apply operation ${data.payload.type}`);
+    ws.send(JSON.stringify({
+      type: 'OPERATION_ERROR',
+      payload: data.payload,
+      error: `Operation ${data.payload.type} failed`,
+      timestamp: Date.now()
+    }));
   }
 }
 
