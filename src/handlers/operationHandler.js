@@ -2,9 +2,12 @@
  * Operation Handler - Refactored to use modular operations
  * Individual operations are in ./operations/ directory
  *
- * CRITICAL: Uses per-graph mutex to prevent concurrent read-modify-write races.
+ * CRITICAL: Uses per-graph queue to prevent concurrent read-modify-write races.
  * Without this, rapid operations (e.g. creating 3 nodes quickly) would each read
  * the same graph version from Redis, and only the last save would survive.
+ *
+ * The operation runs INSIDE the promise chain (not after acquiring a lock),
+ * making concurrent execution on the same graph physically impossible.
  *
  * Performance: Passes NodeIndex for O(1) lookups
  */
@@ -14,23 +17,9 @@ import { routeOperation } from './operations/index.js';
 import { DEFAULT_USER_ID } from '../services/graphService.js';
 
 // Per-graph operation queue: ensures operations for the same graph run sequentially.
-// Key: "userId:graphId", Value: Promise chain
-const graphLocks = new Map();
-
-/**
- * Acquire a per-graph lock. Returns a release function.
- * Operations on the same graph wait for the previous one to finish.
- */
-function acquireGraphLock(graphId, userId) {
-  const lockKey = `${userId}:${graphId}`;
-  const previous = graphLocks.get(lockKey) || Promise.resolve();
-
-  let release;
-  const next = new Promise(resolve => { release = resolve; });
-  graphLocks.set(lockKey, next);
-
-  return previous.then(() => release);
-}
+// Key: "userId:graphId", Value: Promise (tail of the queue)
+const graphQueues = new Map();
+let operationSeq = 0; // Global sequence counter for debugging
 
 /**
  * Create operation handler with dependencies
@@ -40,50 +29,62 @@ export function createOperationHandler(deps) {
   const { getGraph, saveGraph, addOperation, analytics, getNodeIndex } = deps;
 
   /**
-   * Apply operation to graph (serialized per graph via mutex)
-   * @param {string} graphId - Graph ID
-   * @param {Object} operation - Operation object with type and payload
-   * @param {string} userId - User ID
-   * @returns {Object|null} - Updated graph or null on failure
+   * Execute a single operation (called from inside the queue)
    */
-  return async function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
-    // Acquire lock — waits for previous operation on this graph to finish
-    const release = await acquireGraphLock(graphId, userId);
+  async function executeOperation(graphId, operation, userId, seq) {
+    const { type, payload } = operation;
 
-    try {
-      logger.time(`operation:${operation.type}`);
-
-      const graph = await getGraph(graphId, userId);
-      if (!graph) {
-        logger.error(`Graph ${graphId} not found for user ${userId}`);
-        return null;
-      }
-
-      const { type, payload } = operation;
-
-      // Get NodeIndex for O(1) lookups
-      const nodeIndex = getNodeIndex ? getNodeIndex(graphId, userId) : null;
-
-      // Route to appropriate handler - pass userId for daily completions tracking
-      const success = routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId);
-
-      if (!success) {
-        logger.error(`Operation ${type} failed`);
-        logger.timeEnd(`operation:${operation.type}`);
-        return null;
-      }
-
-      // Save graph and log operation
-      await saveGraph(graphId, graph, userId);
-      await addOperation(graphId, operation);
-
-      logger.timeEnd(`operation:${operation.type}`);
-
-      return graph;
-    } finally {
-      // Always release the lock, even on error
-      release();
+    const graph = await getGraph(graphId, userId);
+    if (!graph) {
+      logger.error(`Graph ${graphId} not found for user ${userId}`);
+      return null;
     }
+
+    const nodeIndex = getNodeIndex ? getNodeIndex(graphId, userId) : null;
+    const success = routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId);
+
+    if (!success) {
+      logger.error(`[QUEUE #${seq}] Operation ${type} failed`);
+      return null;
+    }
+
+    await saveGraph(graphId, graph, userId);
+    await addOperation(graphId, operation);
+
+    return graph;
+  }
+
+  /**
+   * Apply operation to graph (serialized per graph via queue)
+   * The operation is chained onto the graph's promise queue, so it CANNOT
+   * start until the previous operation for the same graph has finished.
+   */
+  return function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
+    const lockKey = `${userId}:${graphId}`;
+    const seq = ++operationSeq;
+
+    // Get the current tail of the queue (or a resolved promise if empty)
+    const prev = graphQueues.get(lockKey) || Promise.resolve();
+
+    // Chain our operation ONTO the queue — it runs inside .then(),
+    // so it physically cannot execute until prev resolves
+    const task = prev.then(async () => {
+      logger.info(`[QUEUE #${seq}] START ${operation.type} for ${lockKey}`);
+      try {
+        const result = await executeOperation(graphId, operation, userId, seq);
+        logger.info(`[QUEUE #${seq}] DONE ${operation.type} for ${lockKey}`);
+        return result;
+      } catch (error) {
+        logger.error(`[QUEUE #${seq}] ERROR ${operation.type}: ${error.message}`);
+        return null;
+      }
+    });
+
+    // Store the task as the new tail. Use .catch() so errors don't break the chain.
+    graphQueues.set(lockKey, task.catch(() => {}));
+
+    // Return the task so the caller gets the operation result
+    return task;
   };
 }
 
