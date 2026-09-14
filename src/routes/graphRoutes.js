@@ -76,7 +76,10 @@ export function setupGraphRoutes(deps) {
         
         let broadcastCount = 0;
         clients.forEach((client) => {
+          // Scope by userId too - this payload is the whole graph, and every
+          // user's default graph is called "main".
           if (client.graphId === graphId &&
+              client.userId === userId &&
               client.ws.readyState === 1) { // 1 = OPEN state
             client.ws.send(broadcastMessage);
             broadcastCount++;

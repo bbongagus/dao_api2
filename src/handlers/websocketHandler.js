@@ -163,7 +163,12 @@ async function handleOperation(data, clientInfo, clientId, ws, clients, applyOpe
 
     let broadcastCount = 0;
     clients.forEach((client, id) => {
-      if (client.graphId === clientInfo.graphId && client.ws.readyState === 1) {
+      // Scope by userId as well as graphId: every user's default graph is
+      // called "main", so matching on graphId alone broadcast one user's
+      // operations to every other connected user.
+      if (client.graphId === clientInfo.graphId &&
+          client.userId === clientInfo.userId &&
+          client.ws.readyState === 1) {
         client.ws.send(broadcastMessage);
         broadcastCount++;
       }
