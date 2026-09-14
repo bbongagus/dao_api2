@@ -25,6 +25,9 @@ const NODE_KINDS = [
 const PlanNode = z.object({
   nodeId: z.string().describe('Short id unique within this plan, referenced by downstream'),
   title: z.string().describe('Short imperative title, in the language the user wrote in'),
+  description: z
+    .string()
+    .describe('One to three sentences: why this node exists, what counts as done, and any concrete detail that will not fit in the title'),
   nodeType: z.enum(['dao', 'fundamental', 'repeatable']),
   nodeSubtype: z.enum(['simple', 'category', 'downstream', 'upstream', 'bounded', 'infinity']),
   x: z.number().describe('Horizontal position. The graph reads left to right: earlier work has a smaller x'),
@@ -93,6 +96,20 @@ the graph stops being readable.
 Write every title in the language the person used. Titles are short and
 concrete - a few words, something that can be ticked off.
 
+## Descriptions
+
+Every node carries a description as well as a title. The title is what the
+person scans; the description is what they read when they open the node and
+have forgotten why it is there.
+
+One to three sentences. Say why the node exists, what counts as done, and any
+concrete detail that will not fit in a title - a number, a threshold, an order
+of operations, a thing to watch out for. When you planned from a source the
+person linked, this is where its specifics belong: the timings, quantities and
+conditions the page gave. Do not restate the title, and do not pad.
+
+Because the detail has a home, keep titles short.
+
 ## Positions
 
 A node is 180 wide and 60 tall. Put 380 between the x of one column and the
@@ -114,18 +131,18 @@ Person: "Хочу переехать в Нью-Йорк весной"
 {
   "kind": "plan",
   "nodes": [
-    { "nodeId": "root", "title": "Переезд в Нью-Йорк", "nodeType": "fundamental", "nodeSubtype": "category", "x": 0, "y": 320, "downstream": ["visa", "home", "move"] },
-    { "nodeId": "visa", "title": "Виза и работа", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 0, "downstream": ["offer"] },
-    { "nodeId": "offer", "title": "Получить оффер", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 0, "downstream": ["docs"] },
-    { "nodeId": "docs", "title": "Собрать документы на визу", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 0, "downstream": ["interview"] },
-    { "nodeId": "interview", "title": "Пройти собеседование в консульстве", "nodeType": "dao", "nodeSubtype": "simple", "x": 1520, "y": 0, "downstream": [] },
-    { "nodeId": "home", "title": "Жильё", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 320, "downstream": ["search"] },
-    { "nodeId": "search", "title": "Отобрать районы и варианты", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 320, "downstream": ["deposit"] },
-    { "nodeId": "deposit", "title": "Внести депозит", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 320, "downstream": [] },
-    { "nodeId": "move", "title": "Логистика", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 640, "downstream": ["tickets"] },
-    { "nodeId": "tickets", "title": "Купить билеты", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 640, "downstream": ["pack"] },
-    { "nodeId": "pack", "title": "Собрать вещи", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 640, "downstream": [] },
-    { "nodeId": "english", "title": "Английский каждый день", "nodeType": "repeatable", "nodeSubtype": "infinity", "x": 0, "y": 800, "downstream": [] }
+    { "nodeId": "root", "title": "Переезд в Нью-Йорк", "description": "Общая цель: жить и работать в Нью-Йорке к началу весны. Считается выполненной, когда есть виза, жильё и вы на месте.", "nodeType": "fundamental", "nodeSubtype": "category", "x": 0, "y": 320, "downstream": ["visa", "home", "move"] },
+    { "nodeId": "visa", "title": "Виза и работа", "description": "Право на въезд и работу. Самая долгая ветка — её стоит начинать первой, остальное зависит от сроков консульства.", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 0, "downstream": ["offer"] },
+    { "nodeId": "offer", "title": "Получить оффер", "description": "Подписанное предложение от работодателя, готового спонсировать визу. Без него остальная ветка не двигается.", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 0, "downstream": ["docs"] },
+    { "nodeId": "docs", "title": "Собрать документы на визу", "description": "Петиция работодателя, подтверждение квалификации, загранпаспорт со сроком действия не меньше полугода после въезда.", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 0, "downstream": ["interview"] },
+    { "nodeId": "interview", "title": "Пройти собеседование в консульстве", "description": "Запись открывается неравномерно — проверять слоты стоит заранее и регулярно. Выполнено, когда виза вклеена в паспорт.", "nodeType": "dao", "nodeSubtype": "simple", "x": 1520, "y": 0, "downstream": [] },
+    { "nodeId": "home", "title": "Жильё", "description": "Где жить с первого дня. Можно вести параллельно с визой, но депозит вносить только после одобрения.", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 320, "downstream": ["search"] },
+    { "nodeId": "search", "title": "Отобрать районы и варианты", "description": "Сузить до двух-трёх районов по времени до работы и бюджету, собрать список конкретных вариантов.", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 320, "downstream": ["deposit"] },
+    { "nodeId": "deposit", "title": "Внести депозит", "description": "Обычно это первый месяц плюс депозит. Делать только после одобрения визы, иначе деньги зависнут.", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 320, "downstream": [] },
+    { "nodeId": "move", "title": "Логистика", "description": "Физическое перемещение: билеты, вещи, всё что едет с вами. Последняя по срокам ветка.", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 640, "downstream": ["tickets"] },
+    { "nodeId": "tickets", "title": "Купить билеты", "description": "Брать после получения визы. Дата вылета задаёт крайний срок для всего остального.", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 640, "downstream": ["pack"] },
+    { "nodeId": "pack", "title": "Собрать вещи", "description": "Разделить на то, что летит с вами, что отправляется отдельно и что остаётся. Выполнено, когда чемоданы закрыты.", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 640, "downstream": [] },
+    { "nodeId": "english", "title": "Английский каждый день", "description": "Разговорная практика понемногу, но ежедневно. Стоит отдельно от вех: это привычка без финала, и она не должна тянуть их прогресс вниз.", "nodeType": "repeatable", "nodeSubtype": "infinity", "x": 0, "y": 800, "downstream": [] }
   ]
 }
 
@@ -194,6 +211,9 @@ export function toClientResponse(parsed) {
       nodes: nodes.map((node) => ({
         nodeId: node.nodeId,
         title: node.title,
+        // TreeNode declares description as a string, so anything else must
+        // not reach the client.
+        description: typeof node.description === 'string' ? node.description : '',
         ...normaliseKind(node.nodeType, node.nodeSubtype),
         x: finiteOrZero(node.x),
         y: finiteOrZero(node.y),

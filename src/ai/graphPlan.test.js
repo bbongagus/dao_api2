@@ -303,3 +303,49 @@ test('the example obeys the spacing the prompt asks for', () => {
     }
   }
 });
+
+// --- descriptions ---
+
+test('a description reaches the client alongside the title', () => {
+  const result = toClientResponse({
+    kind: 'plan',
+    nodes: [{
+      nodeId: 'a', title: 'Подкормить закваску', nodeType: 'dao', nodeSubtype: 'simple',
+      x: 0, y: 0, downstream: [],
+      description: 'Раз в 24 часа, равные части муки и воды без хлора.',
+    }],
+  });
+
+  assert.equal(result.data.nodes[0].description, 'Раз в 24 часа, равные части муки и воды без хлора.');
+});
+
+test('a missing description becomes an empty string, not undefined', () => {
+  // TreeNode declares description as a string, so undefined would be dropped
+  // silently at best and rejected at worst.
+  const result = toClientResponse({
+    kind: 'plan',
+    nodes: [{ nodeId: 'a', title: 'T', nodeType: 'dao', nodeSubtype: 'simple', x: 0, y: 0, downstream: [] }],
+  });
+
+  assert.equal(result.data.nodes[0].description, '');
+});
+
+test('a non-string description is discarded rather than passed on', () => {
+  const result = toClientResponse({
+    kind: 'plan',
+    nodes: [{ nodeId: 'a', title: 'T', nodeType: 'dao', nodeSubtype: 'simple', x: 0, y: 0, downstream: [], description: 42 }],
+  });
+
+  assert.equal(result.data.nodes[0].description, '');
+});
+
+test('every node in the worked example carries a description', () => {
+  const example = JSON.parse(PLAN_SYSTEM_PROMPT.match(/\{\s*"kind": "plan"[\s\S]*?\n\}/)[0]);
+
+  for (const node of example.nodes) {
+    assert.ok(
+      typeof node.description === 'string' && node.description.length > 10,
+      `${node.nodeId} should show what a real description looks like`
+    );
+  }
+});
