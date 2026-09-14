@@ -50,10 +50,34 @@ test('a node cannot point downstream at itself', () => {
   assert.deepEqual(result.data.nodes[0].linkedNodeIds, { downstream: [] });
 });
 
-test('an empty plan is reported as a question, not an empty graph', () => {
+test('an empty plan is reported as text, not an empty graph', () => {
   const result = toClientResponse({ kind: 'plan', nodes: [] });
 
   assert.equal(result.type, 'text');
+});
+
+test('a plan with no nodes never surfaces the leftover message field', () => {
+  // Seen live: the model answered kind "plan" with an empty node list and a
+  // single comma left in message, which reached the chat verbatim. The
+  // message field only carries meaning when the answer IS a question.
+  const result = toClientResponse({ kind: 'plan', message: ',', nodes: [] });
+
+  assert.equal(result.type, 'text');
+  assert.notEqual(result.message, ',');
+  assert.ok(result.message.length > 20, 'the reader gets a real sentence');
+});
+
+test('a question whose message is punctuation falls back to something readable', () => {
+  const result = toClientResponse({ kind: 'question', message: ' , ', nodes: [] });
+
+  assert.equal(result.type, 'text');
+  assert.ok(/\p{L}/u.test(result.message), 'the message contains actual words');
+});
+
+test('a real question is passed through as written', () => {
+  const result = toClientResponse({ kind: 'question', message: 'Which city?', nodes: [] });
+
+  assert.equal(result.message, 'Which city?');
 });
 
 test('an impossible type/subtype pair is coerced to a plain task', () => {

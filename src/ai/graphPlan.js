@@ -169,10 +169,20 @@ export function toClientResponse(parsed) {
 
   const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
 
-  if (parsed.kind === 'question' || nodes.length === 0) {
+  // The message field only carries meaning when the answer is a question.
+  // Seen live: a "plan" came back with no nodes and a lone comma in message,
+  // which then reached the chat verbatim.
+  const asksSomething = parsed.kind === 'question' && /\p{L}/u.test(parsed.message || '');
+
+  if (asksSomething) {
+    return { type: 'text', message: parsed.message };
+  }
+
+  if (nodes.length === 0) {
     return {
       type: 'text',
-      message: parsed.message || 'I need a bit more detail before I can lay this out.',
+      message:
+        'I could not turn that into a graph yet. Tell me a bit more about what you want to achieve.',
     };
   }
 
