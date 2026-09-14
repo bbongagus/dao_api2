@@ -10,6 +10,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 
 import { GraphPlanSchema, PLAN_SYSTEM_PROMPT, toClientResponse } from './ai/graphPlan.js';
+import { buildSourceBrief, withSourceBrief } from './ai/sourceBrief.js';
 
 // The user asked for Sonnet. Model ids carry no date suffix.
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
@@ -59,11 +60,26 @@ export async function sendMessageToAI(messages) {
   }
 
   try {
-    const response = await getClient().messages.parse({
+    const client = getClient();
+
+    // If the person pasted a link, read it first. Its own call: the planning
+    // request is schema-constrained, and server-side tools alongside that is
+    // not a combination we can verify without the real API.
+    const brief = await buildSourceBrief(client, MODEL, messages);
+
+    const response = await client.messages.parse({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: PLAN_SYSTEM_PROMPT,
-      messages,
+      // Identical on every request, so it is worth caching. The examples in
+      // it are the bulk of the prompt.
+      system: [
+        {
+          type: 'text',
+          text: PLAN_SYSTEM_PROMPT,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: withSourceBrief(messages, brief),
       thinking: { type: 'adaptive' },
       output_config: {
         format: zodOutputFormat(GraphPlanSchema),

@@ -15,7 +15,6 @@ import { z } from 'zod';
 
 const NODE_KINDS = [
   { nodeType: 'dao', nodeSubtype: 'simple', note: 'a concrete task to do once' },
-  { nodeType: 'dao', nodeSubtype: 'withChildren', note: 'a task that contains sub-tasks' },
   { nodeType: 'fundamental', nodeSubtype: 'category', note: 'a grouping / area of life' },
   { nodeType: 'fundamental', nodeSubtype: 'downstream', note: 'a milestone fed by the tasks after it' },
   { nodeType: 'fundamental', nodeSubtype: 'upstream', note: 'an outcome fed by the tasks before it' },
@@ -27,7 +26,7 @@ const PlanNode = z.object({
   nodeId: z.string().describe('Short id unique within this plan, referenced by downstream'),
   title: z.string().describe('Short imperative title, in the language the user wrote in'),
   nodeType: z.enum(['dao', 'fundamental', 'repeatable']),
-  nodeSubtype: z.enum(['simple', 'withChildren', 'category', 'downstream', 'upstream', 'bounded', 'infinity']),
+  nodeSubtype: z.enum(['simple', 'category', 'downstream', 'upstream', 'bounded', 'infinity']),
   x: z.number().describe('Horizontal position. The graph reads left to right: earlier work has a smaller x'),
   y: z.number().describe('Vertical position. Parallel branches get different y'),
   downstream: z.array(z.string()).describe('nodeIds of the nodes this one leads to'),
@@ -39,22 +38,105 @@ export const GraphPlanSchema = z.object({
   nodes: z.array(PlanNode).describe('Set when kind is "plan": the nodes to create'),
 });
 
-export const PLAN_SYSTEM_PROMPT = `You turn a person's goal into a graph of work in the DAO editor.
+export const PLAN_SYSTEM_PROMPT = `You lay out a person's goal as a graph of work in the DAO editor.
 
-The graph reads left to right: what happens first sits further left. Node kinds:
-${NODE_KINDS.map((k) => `- ${k.nodeType}/${k.nodeSubtype} - ${k.note}`).join('\n')}
+## How the graph reads
 
-Answer with kind "question" when the goal is too vague to lay out, and put a
-single concrete question in "message" - then leave "nodes" empty.
+Left to right: what happens first sits further left, what it leads to sits to
+the right. An arrow means "this feeds into that", not "do this next".
 
-Otherwise answer with kind "plan". Lay the nodes out so they do not overlap:
-about 280px between columns and 150px between rows. Give the plan one entry
-point and let it fan out. Write titles in the same language the person used.
-Keep it to the work that actually matters - a dozen nodes is usually plenty.`;
+## The five kinds, and what progress each one reports
 
+- dao/simple - a concrete task. Progress is 0 or 1: done or not.
+- repeatable/bounded - a habit with a target count. Progress is
+  completed / target, so it moves gradually.
+- repeatable/infinity - an ongoing habit with no end. Progress is 1 only on a
+  day it was ticked, and 0 otherwise.
+- fundamental/downstream - a milestone. Progress is the average of everything
+  reachable to its right.
+- fundamental/upstream - an outcome fed by what came before it. Progress is
+  the average of everything reachable to its left.
+- fundamental/category - a grouping. On a flat plan it behaves like a
+  milestone: the average of what it points to.
+
+## Rules that follow from how progress is computed
+
+An aggregate averages its dependencies **without weighting them**. One task
+and a ten-task branch hanging off the same parent count the same. So keep the
+branches under one parent comparable in size - if one area needs ten steps and
+another needs one, give the small one its own milestone rather than hanging a
+lone task beside a large branch.
+
+A chain counts every node in it. If a milestone points at A, and A points at
+B, and B at C, the milestone averages over A, B and C - not just A. Use chains
+for genuine sequence, not to express detail.
+
+Do not point one milestone at another milestone. The inner one dissolves and
+its tasks are counted individually by the outer one, so the grouping you meant
+to express is lost. Milestones should sit side by side, each over its own
+tasks.
+
+Keep repeatable/infinity out of a milestone's branch. It reads as 0 on any day
+it has not been ticked, which would drag the milestone down every morning.
+Ongoing habits belong on their own, not under a goal that is supposed to
+complete.
+
+## Shape
+
+Plans are flat: no node contains another. Grouping is expressed by pointing a
+category or milestone at the nodes it covers.
+
+Give the plan one entry point on the left. Aim for the work that actually
+matters - eight to fifteen nodes is usually right. More than about twenty and
+the graph stops being readable.
+
+Write every title in the language the person used. Titles are short and
+concrete - a few words, something that can be ticked off.
+
+## Positions
+
+A node is 180 wide and 60 tall. Put 380 between the x of one column and the
+next, and 160 between the y of one row and the next, so nothing overlaps.
+Start at x 0. Centre a parent vertically against the rows it points at.
+
+## Answering
+
+Answer with kind "question" when the goal is too vague to lay out - put one
+concrete question in "message" and leave "nodes" empty. Ask at most once;
+if the person has already answered, plan with what you have.
+
+Otherwise answer with kind "plan".
+
+## Example
+
+Person: "Хочу переехать в Нью-Йорк весной"
+
+{
+  "kind": "plan",
+  "nodes": [
+    { "nodeId": "root", "title": "Переезд в Нью-Йорк", "nodeType": "fundamental", "nodeSubtype": "category", "x": 0, "y": 320, "downstream": ["visa", "home", "move"] },
+    { "nodeId": "visa", "title": "Виза и работа", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 0, "downstream": ["offer"] },
+    { "nodeId": "offer", "title": "Получить оффер", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 0, "downstream": ["docs"] },
+    { "nodeId": "docs", "title": "Собрать документы на визу", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 0, "downstream": ["interview"] },
+    { "nodeId": "interview", "title": "Пройти собеседование в консульстве", "nodeType": "dao", "nodeSubtype": "simple", "x": 1520, "y": 0, "downstream": [] },
+    { "nodeId": "home", "title": "Жильё", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 320, "downstream": ["search"] },
+    { "nodeId": "search", "title": "Отобрать районы и варианты", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 320, "downstream": ["deposit"] },
+    { "nodeId": "deposit", "title": "Внести депозит", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 320, "downstream": [] },
+    { "nodeId": "move", "title": "Логистика", "nodeType": "fundamental", "nodeSubtype": "downstream", "x": 380, "y": 640, "downstream": ["tickets"] },
+    { "nodeId": "tickets", "title": "Купить билеты", "nodeType": "dao", "nodeSubtype": "simple", "x": 760, "y": 640, "downstream": ["pack"] },
+    { "nodeId": "pack", "title": "Собрать вещи", "nodeType": "dao", "nodeSubtype": "simple", "x": 1140, "y": 640, "downstream": [] },
+    { "nodeId": "english", "title": "Английский каждый день", "nodeType": "repeatable", "nodeSubtype": "infinity", "x": 0, "y": 800, "downstream": [] }
+  ]
+}
+
+Note what the example does: three milestones of comparable size under one
+category, each over its own chain; the daily habit stands apart from the
+milestones so it cannot drag their progress down.`
 
 const SUBTYPES_BY_TYPE = {
-  dao: ['simple', 'withChildren'],
+  // No withChildren: addPlanToGraph puts every node on the current level,
+  // so nothing in a plan can own children.
+  dao: ['simple'],
   fundamental: ['category', 'downstream', 'upstream'],
   repeatable: ['bounded', 'infinity'],
 };
