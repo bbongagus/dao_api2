@@ -48,15 +48,13 @@ async function main() {
     payload: {
       type: 'ADD_NODE',
       payload: {
-        node: {
-          id: 'isolation-probe-' + Date.now(),
-          title: 'private node belonging to user A',
-          nodeType: 'dao',
-          nodeSubtype: 'simple',
-          position: { x: 0, y: 0 },
-          children: [],
-          linkedNodeIds: {}
-        },
+        id: 'isolation-probe-' + Date.now(),
+        title: 'private node belonging to user A',
+        nodeType: 'dao',
+        nodeSubtype: 'simple',
+        position: { x: 0, y: 0 },
+        children: [],
+        linkedNodeIds: {},
         parentId: null
       }
     }
