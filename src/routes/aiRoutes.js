@@ -60,8 +60,68 @@ export function setupAIRoutes() {
     }
   });
 
+  /**
+   * Graph chat - one streaming turn.
+   *
+   * Server-sent events over POST rather than EventSource: the request carries
+   * the current graph, which is too big for a query string.
+   *
+   * Nothing here applies a change. The response is a proposal the editor
+   * shows for confirmation.
+   */
+  router.post('/chat', async (req, res) => {
+    const { messages, nodes } = req.body || {};
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, error: 'messages array is required' });
+    }
+
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+      return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY is not set on the server' });
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      // Proxies that buffer would defeat the point of streaming.
+      'X-Accel-Buffering': 'no',
+    });
+
+    const emit = (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    // If the person navigates away mid-turn there is nothing left to write to.
+    // This must watch the response, not the request: `req` emits 'close' as
+    // soon as its body has been read, which is immediately.
+    let aborted = false;
+    res.on('close', () => { aborted = true; });
+
+    try {
+      const Anthropic = (await import('@anthropic-ai/sdk')).default;
+      const { streamChatTurn } = await import('../ai/chat.js');
+
+      const result = await streamChatTurn({
+        client: new Anthropic(),
+        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
+        messages,
+        nodes: Array.isArray(nodes) ? nodes : [],
+        emit: (event) => { if (!aborted) emit(event); },
+      });
+
+      if (!aborted) emit({ type: 'result', result });
+    } catch (error) {
+      console.error('❌ AI chat error:', error);
+      if (!aborted) emit({ type: 'error', message: error.message || 'AI chat failed' });
+    } finally {
+      if (!aborted) res.end();
+    }
+  });
+
   // DIAGNOSTIC: Log that the route has been registered
   console.log('🔍 [Server] AI Planning route registered at POST /api/ai/generate-plan');
+  console.log('🔍 [Server] AI chat route registered at POST /api/ai/chat');
 
   return router;
 }

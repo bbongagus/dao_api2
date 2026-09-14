@@ -41,9 +41,7 @@ export const GraphPlanSchema = z.object({
   nodes: z.array(PlanNode).describe('Set when kind is "plan": the nodes to create'),
 });
 
-export const PLAN_SYSTEM_PROMPT = `You lay out a person's goal as a graph of work in the DAO editor.
-
-## How the graph reads
+export const GRAPH_SEMANTICS = `## How the graph reads
 
 Left to right: what happens first sits further left, what it leads to sits to
 the right. An arrow means "this feeds into that", not "do this next".
@@ -84,18 +82,6 @@ it has not been ticked, which would drag the milestone down every morning.
 Ongoing habits belong on their own, not under a goal that is supposed to
 complete.
 
-## Shape
-
-Plans are flat: no node contains another. Grouping is expressed by pointing a
-category or milestone at the nodes it covers.
-
-Give the plan one entry point on the left. Aim for the work that actually
-matters - eight to fifteen nodes is usually right. More than about twenty and
-the graph stops being readable.
-
-Write every title in the language the person used. Titles are short and
-concrete - a few words, something that can be ticked off.
-
 ## Descriptions
 
 Every node carries a description as well as a title. The title is what the
@@ -115,6 +101,22 @@ Because the detail has a home, keep titles short.
 A node is 180 wide and 60 tall. Put 380 between the x of one column and the
 next, and 160 between the y of one row and the next, so nothing overlaps.
 Start at x 0. Centre a parent vertically against the rows it points at.
+`;
+
+export const PLAN_SYSTEM_PROMPT = `You lay out a person's goal as a graph of work in the DAO editor.
+${GRAPH_SEMANTICS}
+
+## Shape
+
+Plans are flat: no node contains another. Grouping is expressed by pointing a
+category or milestone at the nodes it covers.
+
+Give the plan one entry point on the left. Aim for the work that actually
+matters - eight to fifteen nodes is usually right. More than about twenty and
+the graph stops being readable.
+
+Write every title in the language the person used. Titles are short and
+concrete - a few words, something that can be ticked off.
 
 ## Answering
 
