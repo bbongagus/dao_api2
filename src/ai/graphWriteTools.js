@@ -16,12 +16,23 @@ export { KIND_TO_TYPES, KIND_LIST };
 export function createWriteTools(nodes, aliases) {
   const staged = [];
   const minted = new Map(); // alias the model invented → its staged add
+  const pendingDeletes = new Set(); // ids of nodes staged for deletion
 
   /** A reference is either an existing node, or one staged in this same turn. */
   const resolve = (ref) => {
     const node = aliases.nodeAt(ref);
-    if (node) return { id: node.id, node };
-    if (minted.has(ref)) return { id: ref, node: null };
+    if (node) {
+      if (pendingDeletes.has(node.id)) {
+        return { error: `${ref} is already staged for deletion, and cannot be referenced again. Remove that operation first, or build a different change.` };
+      }
+      return { id: node.id, node };
+    }
+    if (minted.has(ref)) {
+      if (pendingDeletes.has(ref)) {
+        return { error: `${ref} is already staged for deletion, and cannot be referenced again. Remove that operation first, or build a different change.` };
+      }
+      return { id: ref, node: null };
+    }
     return null;
   };
 
@@ -47,6 +58,7 @@ export function createWriteTools(nodes, aliases) {
         if (parent) {
           if (typeof parent !== 'string') return 'A parent must be a string.';
           const found = resolve(parent);
+          if (found?.error) return found.error;
           if (!found) return `There is no node called ${parent} to put this inside.`;
           parentId = found.id;
         }
@@ -73,6 +85,7 @@ export function createWriteTools(nodes, aliases) {
       update({ target, title, description, kind, requiredCompletions }) {
         if (typeof target !== 'string') return 'A target must be a string.';
         const found = resolve(target);
+        if (found?.error) return found.error;
         if (!found) return `There is no node called ${target}.`;
 
         const operation = { op: 'update', target: found.id };
@@ -103,6 +116,7 @@ export function createWriteTools(nodes, aliases) {
       remove({ target }) {
         if (typeof target !== 'string') return 'A target must be a string.';
         const found = resolve(target);
+        if (found?.error) return found.error;
         if (!found) return `There is no node called ${target}.`;
 
         // Deleting a parent takes its subtree with it, and nothing the agent
@@ -119,7 +133,15 @@ export function createWriteTools(nodes, aliases) {
           return `I will not delete ${nodeName} — it has ${stagedChildren.length} node(s) staged inside in this turn (${childNames}), and they would go with it. Remove or move those first, or change it instead.`;
         }
 
+        // Refuse to delete a node that was added in this same turn.
+        // It does not exist yet, so deleting it is meaningless; if it should
+        // not be there, do not add it in the first place.
+        if (!found.node && minted.has(found.id)) {
+          return `${target} does not exist yet — it is being added in this same turn. If you do not want it, remove it from the additions instead.`;
+        }
+
         staged.push({ op: 'delete', target: found.id });
+        pendingDeletes.add(found.id);
         const name = found.node ? `"${found.node.title}"` : target;
         return `Staged: delete ${name}.`;
       },
@@ -129,6 +151,8 @@ export function createWriteTools(nodes, aliases) {
         if (typeof target !== 'string') return 'A target must be a string.';
         const from = resolve(source);
         const to = resolve(target);
+        if (from?.error) return from.error;
+        if (to?.error) return to.error;
         if (!from) return `There is no node called ${source}.`;
         if (!to) return `There is no node called ${target}.`;
         if (from.id === to.id) return 'A node cannot lead to itself.';
@@ -142,6 +166,8 @@ export function createWriteTools(nodes, aliases) {
         if (typeof target !== 'string') return 'A target must be a string.';
         const from = resolve(source);
         const to = resolve(target);
+        if (from?.error) return from.error;
+        if (to?.error) return to.error;
         if (!from) return `There is no node called ${source}.`;
         if (!to) return `There is no node called ${target}.`;
 

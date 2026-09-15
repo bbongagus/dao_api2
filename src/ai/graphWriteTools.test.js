@@ -278,3 +278,82 @@ test('remove refuses a node with children staged in the same turn', () => {
   assert.match(removeSaid, /cat/i, 'names the node being removed');
   assert.match(removeSaid, /child/i, 'mentions the child');
 });
+
+// Fix 2b: Order-independence — nothing already staged for deletion may be referenced
+test('add with parent that is already staged for deletion is refused', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+  const said = tools.add({ alias: 'child', parent: 'n3', title: 'Child', description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged.length, 1, 'only the delete is staged');
+  assert.match(said, /n3/i, 'names the node that is already staged for deletion');
+  assert.match(said, /already staged for deletion/i, 'explains the reason');
+});
+
+test('update that targets a node already staged for deletion is refused', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+  const said = tools.update({ target: 'n3', title: 'New' });
+
+  assert.equal(staged.length, 1, 'only the delete is staged');
+  assert.match(said, /n3/i, 'names the target');
+  assert.match(said, /already staged for deletion/i);
+});
+
+test('link with source already staged for deletion is refused', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+  const said = tools.link({ source: 'n3', target: 'n1' });
+
+  assert.equal(staged.length, 1, 'only the delete is staged');
+  assert.match(said, /n3/i);
+  assert.match(said, /already staged for deletion/i);
+});
+
+test('link with target already staged for deletion is refused', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+  const said = tools.link({ source: 'n1', target: 'n3' });
+
+  assert.equal(staged.length, 1, 'only the delete is staged');
+  assert.match(said, /n3/i);
+  assert.match(said, /already staged for deletion/i);
+});
+
+test('unlink with source already staged for deletion is refused', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+  const said = tools.unlink({ source: 'n3', target: 'n1' });
+
+  assert.equal(staged.length, 1, 'only the delete is staged');
+  assert.match(said, /n3/i);
+  assert.match(said, /already staged for deletion/i);
+});
+
+test('unlink with target already staged for deletion is refused', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+  const said = tools.unlink({ source: 'n1', target: 'n3' });
+
+  assert.equal(staged.length, 1, 'only the delete is staged');
+  assert.match(said, /n3/i);
+  assert.match(said, /already staged for deletion/i);
+});
+
+// Fix 2c: Removing a node added in this same turn is refused
+test('remove of a node added in this same turn is refused', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'newnode', parent: '', title: 'New', description: '', kind: 'dao', x: 0, y: 0 });
+  const said = tools.remove({ target: 'newnode' });
+
+  assert.equal(staged.length, 1, 'only the add is staged');
+  assert.match(said, /newnode/i, 'names the node');
+  assert.match(said, /does not exist yet/i, 'explains it is not real');
+});
