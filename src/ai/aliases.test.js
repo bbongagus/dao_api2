@@ -42,6 +42,14 @@ test('the path of a nested node names its ancestors', () => {
   assert.deepEqual(t.pathOf('n1'), []);
 });
 
+test('the path of an unknown alias is null, distinct from a root node\'s empty path', () => {
+  const t = buildAliasTable([n('a', 'A')]);
+
+  assert.equal(t.pathOf('n1').length, 0);
+  assert.notEqual(t.pathOf('n1'), null);
+  assert.equal(t.pathOf('n99'), null);
+});
+
 test('depth and parent are recorded for rendering', () => {
   const t = buildAliasTable([n('a', 'A', [n('a1', 'A1')])]);
 

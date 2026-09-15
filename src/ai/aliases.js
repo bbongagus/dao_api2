@@ -8,6 +8,14 @@
  * The walk is depth first and in document order, so the same graph always
  * yields the same table — which makes a turn reproducible and the aliases
  * stable across the reads within it.
+ *
+ * `pathOf(alias)` has three distinguishable states: `null` means the alias
+ * was never handed out by this table (nothing to validate against — treat
+ * it as an invented/unknown alias), `[]` means the alias is a genuine
+ * top-level node (no ancestors), and `[...]` is the list of ancestor titles
+ * for a nested node. Callers validating a model-supplied alias must check
+ * for `null`, not just falsiness/emptiness, since `[]` is also falsy-ish
+ * but denotes a real node.
  */
 
 export function buildAliasTable(nodes) {
@@ -37,7 +45,7 @@ export function buildAliasTable(nodes) {
     aliasOf: (id) => byId.get(id) ?? null,
     nodeAt: (alias) => byAlias.get(alias)?.node ?? null,
     entryAt: (alias) => byAlias.get(alias) ?? null,
-    pathOf: (alias) => ancestorsOf.get(alias) ?? [],
+    pathOf: (alias) => ancestorsOf.get(alias) ?? null,
   };
 }
 
