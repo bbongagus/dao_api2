@@ -1,0 +1,169 @@
+// dao_api2/src/ai/graphWriteTools.test.js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { buildAliasTable } from './aliases.js';
+import { createWriteTools } from './graphWriteTools.js';
+
+const n = (id, title, extra = {}) => ({
+  id, title, nodeType: 'dao', nodeSubtype: 'simple',
+  description: '', children: [], linkedNodeIds: {}, ...extra,
+});
+
+const graph = [
+  n('health', 'Здоровье', {
+    nodeType: 'fundamental', nodeSubtype: 'category',
+    children: [n('run', 'Бегать')],
+  }),
+  n('offer', 'Получить оффер'),
+];
+
+const make = () => createWriteTools(graph, buildAliasTable(graph));
+
+test('add stages a node with the kind the agent named', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({
+    alias: 'docs', parent: '', title: 'Собрать документы',
+    description: 'Петиция и паспорт.', kind: 'dao', x: 380, y: 0,
+  });
+
+  assert.equal(staged.length, 1);
+  assert.equal(staged[0].op, 'add');
+  assert.equal(staged[0].nodeType, 'dao');
+  assert.equal(staged[0].nodeSubtype, 'simple');
+  assert.equal(staged[0].parent, null, 'empty parent means top level');
+  assert.match(said, /Собрать документы/);
+});
+
+test('add under a parent records the parent as a real id', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'stretch', parent: 'n1', title: 'Растяжка', description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged[0].parent, 'health');
+});
+
+test('kata-infinity maps onto the repeatable pair', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'water', parent: '', title: 'Пить воду', description: '', kind: 'kata-infinity', x: 0, y: 0 });
+
+  assert.equal(staged[0].nodeType, 'repeatable');
+  assert.equal(staged[0].nodeSubtype, 'infinity');
+});
+
+test('an unknown kind is refused, not guessed at', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({ alias: 'x', parent: '', title: 'T', description: '', kind: 'sideways', x: 0, y: 0 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /sideways/);
+});
+
+test('add under a parent that does not exist is refused', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({ alias: 'x', parent: 'n99', title: 'T', description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /n99/);
+});
+
+test('two nodes cannot claim the same alias', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'x', parent: '', title: 'A', description: '', kind: 'dao', x: 0, y: 0 });
+  const said = tools.add({ alias: 'x', parent: '', title: 'B', description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged.length, 1);
+  assert.match(said, /x/);
+});
+
+test('update stages only the fields it was given', () => {
+  const { tools, staged } = make();
+
+  tools.update({ target: 'n3', description: 'Оффер с визовой поддержкой.' });
+
+  assert.deepEqual(staged[0], { op: 'update', target: 'offer', description: 'Оффер с визовой поддержкой.' });
+});
+
+test('update that names no field is refused', () => {
+  const { tools, staged } = make();
+
+  const said = tools.update({ target: 'n3' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /\p{L}/u);
+});
+
+test('update can change a kind', () => {
+  const { tools, staged } = make();
+
+  tools.update({ target: 'n3', kind: 'kai' });
+
+  assert.equal(staged[0].nodeType, 'fundamental');
+  assert.equal(staged[0].nodeSubtype, 'downstream');
+});
+
+test('remove stages a leaf', () => {
+  const { tools, staged } = make();
+
+  tools.remove({ target: 'n3' });
+
+  assert.deepEqual(staged[0], { op: 'delete', target: 'offer' });
+});
+
+test('remove refuses a node with children and says why', () => {
+  const { tools, staged } = make();
+
+  const said = tools.remove({ target: 'n1' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /Здоровье/);
+  assert.match(said, /\p{L}/u);
+});
+
+test('link stages a connection between two existing nodes', () => {
+  const { tools, staged } = make();
+
+  tools.link({ source: 'n1', target: 'n3' });
+
+  assert.deepEqual(staged[0], { op: 'link', source: 'health', target: 'offer' });
+});
+
+test('link can reach a node staged earlier in the same turn', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'docs', parent: '', title: 'Документы', description: '', kind: 'dao', x: 0, y: 0 });
+  tools.link({ source: 'n3', target: 'docs' });
+
+  assert.equal(staged[1].target, 'docs', 'a node with no id yet keeps its alias');
+});
+
+test('a node cannot be linked to itself', () => {
+  const { tools, staged } = make();
+
+  const said = tools.link({ source: 'n3', target: 'n3' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /\p{L}/u);
+});
+
+test('unlink stages the reverse', () => {
+  const { tools, staged } = make();
+
+  tools.unlink({ source: 'n1', target: 'n3' });
+
+  assert.equal(staged[0].op, 'unlink');
+});
+
+test('an operation aimed at an unknown alias is refused', () => {
+  const { tools, staged } = make();
+
+  const said = tools.update({ target: 'n99', title: 'x' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /n99/);
+});
