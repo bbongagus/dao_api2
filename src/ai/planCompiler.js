@@ -82,6 +82,12 @@ export function compilePlan(plan, { nodes = [], aliases }) {
   for (const stage of stages) {
     const id = text(stage?.id);
     if (!id) return { error: 'Every stage needs an id.' };
+    // ':' is the alias separator (plan:<stage>, plan:<stage>:<step>) and
+    // 'section' is what a new section's own alias is called — either one in
+    // a stage id would collide with a minted alias and silently misdirect
+    // a later link or parent.
+    if (id.includes(':')) return { error: `Stage id ${id} cannot contain ':'. Use letters, digits, - or _.` };
+    if (id === 'section') return { error: `section is reserved; give the stage another id.` };
     if (stageById.has(id)) return { error: `Two stages are called ${id}. Stage ids must be unique.` };
     if (!text(stage.title)) return { error: `Stage ${id} needs a title: the outcome that closes it.` };
     const steps = list(stage.steps);
@@ -92,6 +98,8 @@ export function compilePlan(plan, { nodes = [], aliases }) {
     for (const step of steps) {
       const stepId = text(step?.id);
       if (!stepId) return { error: `Every step in stage ${id} needs an id.` };
+      // Same reason as the stage id above: a step's alias is plan:<stage>:<stepId>.
+      if (stepId.includes(':')) return { error: `Step id ${stepId} cannot contain ':'. Use letters, digits, - or _.` };
       if (seen.has(stepId)) return { error: `Stage ${id} has two steps called ${stepId}. Step ids must be unique within a stage.` };
       seen.add(stepId);
       if (!text(step.title)) return { error: `Step ${stepId} in stage ${id} needs a title.` };

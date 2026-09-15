@@ -242,6 +242,18 @@ test('two stages with one id are refused', () => {
   assert.match(refused(inNewSection([stage('a', 'A', [step('x', 'X')]), stage('a', 'B', [step('y', 'Y')])])), /unique/);
 });
 
+test('a stage id containing a colon is refused', () => {
+  assert.match(refused(inNewSection([stage('a:b', 'A', [step('c', 'C')])])), /cannot contain ':'/);
+});
+
+test('a step id containing a colon is refused', () => {
+  assert.match(refused(inNewSection([stage('a', 'A', [step('b:c', 'C')])])), /cannot contain ':'/);
+});
+
+test('a stage id of "section" is refused, since that alias is reserved for the section itself', () => {
+  assert.match(refused(inNewSection([stage('section', 'A', [step('x', 'X')])])), /reserved/);
+});
+
 test('a step that is both a checklist and repeated is refused', () => {
   assert.match(refused(inNewSection([
     stage('a', 'A', [step('x', 'X', { checklist: ['one'], repeat: 3 })]),
