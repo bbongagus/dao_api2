@@ -82,19 +82,23 @@ function judge(goal, { statuses, result }) {
   const operations = result?.type === 'changes' ? result.operations : [];
   const shape = describeProposalShape(operations);
   const said = `${result?.summary || ''} ${result?.message || ''}`;
+  // No nodes means no proposal at all (a refusal, or the agent running out of
+  // room mid-turn) — every check fails then, not just the ones that happen to
+  // read false on an empty shape.
+  const proposed = shape.nodes > 0;
 
   return {
     operations,
     shape,
     said,
     checks: [
-      ['used plan_path', statuses.some((s) => s.startsWith('planning '))],
-      ['a stage waits for another', shape.stageLinks > 0],
-      ['a merge point', goal.merge ? shape.merges > 0 : true],
-      ['no task counted twice, no empty Mi', shape.doubleCounted.length === 0 && shape.miWithoutTasks === 0],
-      ['names what can start now', shape.startNow.length > 0 && shape.startNow.some((t) => said.includes(t))],
-      ['fits: no overlap, 1–40 nodes', shape.overlaps.length === 0 && shape.nodes > 0 && shape.nodes <= 40],
-      ['no endless habit beside a milestone', shape.habitsBesideMilestones.length === 0],
+      ['used plan_path', proposed && statuses.some((s) => s.startsWith('planning '))],
+      ['a stage waits for another', proposed && shape.stageLinks > 0],
+      ['a merge point', proposed && (goal.merge ? shape.merges > 0 : true)],
+      ['no task counted twice, no empty Mi', proposed && shape.doubleCounted.length === 0 && shape.miWithoutTasks === 0],
+      ['names what can start now', proposed && shape.startNow.length > 0 && shape.startNow.some((t) => said.includes(t))],
+      ['fits: no overlap, 1–40 nodes', proposed && shape.overlaps.length === 0 && shape.nodes <= 40],
+      ['no endless habit beside a milestone', proposed && shape.habitsBesideMilestones.length === 0],
     ],
   };
 }
@@ -118,44 +122,49 @@ async function main() {
   let passed = 0;
   let total = 0;
 
-  for (const goal of GOALS) {
-    const user = `eval-${goal.key}-${stamp}`;
-    await redis.set(`user:${user}:graph:main`, JSON.stringify({
-      nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, version: 1, userId: user,
-    }));
+  // A throw anywhere in here — a bad turn, a full disk on the write — must
+  // still leave Redis clean; this run's eval-*-<stamp> users are throwaway,
+  // but the cleanup and disconnect below are what actually throws them away.
+  try {
+    for (const goal of GOALS) {
+      const user = `eval-${goal.key}-${stamp}`;
+      await redis.set(`user:${user}:graph:main`, JSON.stringify({
+        nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, version: 1, userId: user,
+      }));
 
-    console.log(`\n── ${goal.key}`);
-    let verdict;
-    try {
-      verdict = judge(goal, await turn(user, goal.text));
-    } catch (error) {
-      console.log(`  💥 ${error.message}`);
-      report.push({ goal: goal.key, error: error.message });
-      total += 7;
-      continue;
+      console.log(`\n── ${goal.key}`);
+      let verdict;
+      try {
+        verdict = judge(goal, await turn(user, goal.text));
+      } catch (error) {
+        console.log(`  💥 ${error.message}`);
+        report.push({ goal: goal.key, error: error.message });
+        total += 7;
+        continue;
+      }
+
+      for (const [name, ok] of verdict.checks) {
+        console.log(`  ${ok ? '✅' : '❌'} ${name}`);
+        total += 1;
+        if (ok) passed += 1;
+      }
+      const { shape } = verdict;
+      console.log(`  ${shape.nodes} nodes, ${shape.arrows} arrows, ${shape.merges} merges, ${shape.stageLinks} stage links; start now: ${shape.startNow.join(', ') || '—'}`);
+      console.log(outline(verdict.operations));
+      console.log(`  said: ${verdict.said.replace(/\s+/g, ' ').slice(0, 300)}`);
+      report.push({ goal: goal.key, checks: verdict.checks, shape, said: verdict.said, operations: verdict.operations });
     }
 
-    for (const [name, ok] of verdict.checks) {
-      console.log(`  ${ok ? '✅' : '❌'} ${name}`);
-      total += 1;
-      if (ok) passed += 1;
-    }
-    const { shape } = verdict;
-    console.log(`  ${shape.nodes} nodes, ${shape.arrows} arrows, ${shape.merges} merges, ${shape.stageLinks} stage links; start now: ${shape.startNow.join(', ') || '—'}`);
-    console.log(outline(verdict.operations));
-    console.log(`  said: ${verdict.said.replace(/\s+/g, ' ').slice(0, 300)}`);
-    report.push({ goal: goal.key, checks: verdict.checks, shape, said: verdict.said, operations: verdict.operations });
+    console.log(`\n${passed}/${total} checks passed`);
+    fs.mkdirSync('eval-results', { recursive: true });
+    const file = `eval-results/${LABEL}-${stamp}.json`;
+    fs.writeFileSync(file, JSON.stringify({ label: LABEL, base: BASE, passed, total, report }, null, 2));
+    console.log(`Saved ${file}`);
+  } finally {
+    const keys = await redis.keys(`user:eval-*-${stamp}:graph:main`);
+    if (keys.length) await redis.del(...keys);
+    redis.disconnect();
   }
-
-  console.log(`\n${passed}/${total} checks passed`);
-  fs.mkdirSync('eval-results', { recursive: true });
-  const file = `eval-results/${LABEL}-${stamp}.json`;
-  fs.writeFileSync(file, JSON.stringify({ label: LABEL, base: BASE, passed, total, report }, null, 2));
-  console.log(`Saved ${file}`);
-
-  const keys = await redis.keys(`user:eval-*-${stamp}:graph:main`);
-  if (keys.length) await redis.del(...keys);
-  redis.disconnect();
 }
 
 main();
