@@ -177,7 +177,7 @@ setupWebSocketHandler({
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients }));
 app.use('/api/analytics', setupAnalyticsRoutes({ analytics, progressSnapshots }));
-app.use('/api/ai', setupAIRoutes());
+app.use('/api/ai', setupAIRoutes({ getGraph }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

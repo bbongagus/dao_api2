@@ -5,13 +5,14 @@
  */
 
 import express from 'express';
+import { DEFAULT_USER_ID } from '../services/graphService.js';
 
 const router = express.Router();
 
 /**
  * Setup AI routes
  */
-export function setupAIRoutes() {
+export function setupAIRoutes({ getGraph }) {
   // AI Planning endpoint (dynamic import to avoid startup crash if API key missing)
   // Copied from simple-server.js lines 1044-1088
   router.post('/generate-plan', async (req, res) => {
@@ -70,7 +71,8 @@ export function setupAIRoutes() {
    * shows for confirmation.
    */
   router.post('/chat', async (req, res) => {
-    const { messages, nodes } = req.body || {};
+    const { messages, currentPath, graphId } = req.body || {};
+    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ success: false, error: 'messages array is required' });
@@ -88,25 +90,25 @@ export function setupAIRoutes() {
       'X-Accel-Buffering': 'no',
     });
 
-    const emit = (event) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    };
+    const emit = (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); };
 
-    // If the person navigates away mid-turn there is nothing left to write to.
-    // This must watch the response, not the request: `req` emits 'close' as
-    // soon as its body has been read, which is immediately.
+    // Watch the response, not the request: `req` emits 'close' as soon as its
+    // body has been read, which is immediately.
     let aborted = false;
     res.on('close', () => { aborted = true; });
 
     try {
       const Anthropic = (await import('@anthropic-ai/sdk')).default;
-      const { streamChatTurn } = await import('../ai/chat.js');
+      const { runGraphAgent } = await import('../ai/agent.js');
 
-      const result = await streamChatTurn({
+      const graph = await getGraph(graphId || 'main', userId);
+
+      const result = await runGraphAgent({
         client: new Anthropic(),
         model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
+        nodes: graph?.nodes || [],
+        currentPath: Array.isArray(currentPath) ? currentPath : [],
         messages,
-        nodes: Array.isArray(nodes) ? nodes : [],
         emit: (event) => { if (!aborted) emit(event); },
       });
 
