@@ -19,6 +19,7 @@ export function createWriteTools(nodes, aliases, edges = []) {
   const staged = [];
   const minted = new Map(); // alias the model invented → its staged add
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
+  let planStaged = false; // whether plan() has already succeeded this turn
 
   // Whether two nodes are connected once what is staged so far is applied.
   // A link staged twice, or on top of one that exists, is applied twice.
@@ -206,8 +207,11 @@ export function createWriteTools(nodes, aliases, edges = []) {
 
       plan(input) {
         // One plan per turn: a second would mint the same plan: aliases, and
-        // two plans at once is not something a person can review.
-        if ([...minted.keys()].some((alias) => alias.startsWith('plan:'))) {
+        // two plans at once is not something a person can review. This is a
+        // dedicated flag rather than "does minted hold a plan: alias" — the
+        // latter also matches an ordinary add() that happened to reuse the
+        // plan: prefix, which is the alias-collision case below, not this one.
+        if (planStaged) {
           return 'A plan is already staged in this turn. Adjust it with the other tools, or ask for a new plan next turn.';
         }
 
@@ -220,11 +224,24 @@ export function createWriteTools(nodes, aliases, edges = []) {
         const compiled = compilePlan(input, { nodes, aliases });
         if (compiled.error) return compiled.error;
 
+        // compilePlan only knows the plan's own aliases are internally
+        // distinct — it cannot see what else this turn already minted. A
+        // node added earlier under the same alias (e.g. add({ alias:
+        // 'plan:visa' }) ahead of a stage id 'visa') would otherwise be
+        // silently overwritten in `minted` instead of refused, the way
+        // add() itself refuses a repeat alias.
+        for (const operation of compiled.operations) {
+          if (operation.op === 'add' && (minted.has(operation.alias) || aliases.nodeAt(operation.alias))) {
+            return `The alias ${operation.alias} is already taken in this turn. Rename the node you added, or give the stage another id.`;
+          }
+        }
+
         for (const operation of compiled.operations) {
           staged.push({ ...operation, plan: true });
           if (operation.op === 'add') minted.set(operation.alias, operation);
           if (operation.op === 'link') stagedLinks.add(pair(operation.source, operation.target));
         }
+        planStaged = true;
 
         const now = compiled.startNow.length
           ? ` Can start now: ${compiled.startNow.map((title) => `"${title}"`).join(', ')}.`

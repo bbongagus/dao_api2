@@ -471,3 +471,13 @@ test('a plan into an existing ryu goes inside it', () => {
 
   assert.ok(staged.filter((o) => o.op === 'add' && !o.alias.split(':')[3]).every((o) => o.parent === 'health'));
 });
+
+test('a plan refuses when one of its aliases was already minted earlier in the turn', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'plan:visa', parent: '', title: 'Заранее', description: '', kind: 'dao', x: 0, y: 0 });
+  const said = tools.plan(move);
+
+  assert.equal(staged.length, 1, 'nothing from the plan is staged');
+  assert.match(said, /plan:visa/);
+});
