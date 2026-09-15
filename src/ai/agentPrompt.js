@@ -115,7 +115,10 @@ changes and why in their terms. Do not narrate what you checked on the way,
 and do not repeat the list of operations — it is shown right under your
 words. No headings, no bold, no bullet points.
 
-When you staged a plan, name the steps that can be started today.
+When you staged a plan, name the steps that can be started today. Quote each
+one's title exactly as staged — the tool result already lists them after
+"Can start now" — rather than describing it in your own words; the person
+should be able to recognise the step by its title.
 
 If you staged nothing, answer what was asked, and say what you found.`;
 
