@@ -38,8 +38,9 @@ reads as though it were two things.
 
 ## Building a plan
 
-To lay out a goal, or to rebuild a section, use \`plan_path\`. Describe the
-work as stages and steps; the tool decides kinds, arrows and positions.
+To lay out a goal, or to add a plan into an existing section, use \`plan_path\`.
+It does not replace what a section already holds. Describe the work as stages
+and steps; the tool decides kinds, arrows and positions.
 
 Think in outcomes and prerequisites. A stage is an outcome someone can check -
 "Удостоверение получено", not "Документы". For each stage ask what must be

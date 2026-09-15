@@ -22,6 +22,11 @@ test('the prompt tells the agent it must look before it changes', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /inspect/);
 });
 
+test('the prompt does not send a restructure to plan_path, which only appends', () => {
+  assert.equal(/rebuild a section/.test(AGENT_SYSTEM_PROMPT), false);
+  assert.match(AGENT_SYSTEM_PROMPT, /does not replace what a section already holds/);
+});
+
 test('the prompt never mentions uuids', () => {
   assert.equal(/uuid/i.test(AGENT_SYSTEM_PROMPT), false);
 });
