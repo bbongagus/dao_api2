@@ -18,10 +18,12 @@ import { createReadTools } from './graphReadTools.js';
 import { createWriteTools, KIND_LIST } from './graphWriteTools.js';
 import { AGENT_SYSTEM_PROMPT, describeWhereUserIs } from './agentPrompt.js';
 import { buildSourceBrief } from './sourceBrief.js';
-import { MAX_OPERATIONS } from './graphChange.js';
 
 const MAX_TOKENS = 16000;
 const MAX_ITERATIONS = 12;
+
+// A single exchange should not be able to rewrite the whole graph.
+export const MAX_OPERATIONS = 30;
 
 export function summariseStaged(staged) {
   return {
