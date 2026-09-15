@@ -60,7 +60,8 @@ now something that is not.
 - repeatable/infinity - an ongoing habit with no end. Progress is 1 only on a
   day it was ticked, and 0 otherwise.
 - fundamental/upstream (Mi) - closes a stage. Progress is the work since the
-  previous Mi: it walks left and stops at the previous Mi without counting it.
+  previous Mi: it walks left and stops at the previous Mi, or at a Kai,
+  without counting either.
 - fundamental/downstream (Kai) - everything reachable to its right. It walks
   through every Mi and Kai on the way and counts what lies beyond them too.
 - fundamental/category (Ryu) - a section. It averages the Mi and Kai inside

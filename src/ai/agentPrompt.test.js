@@ -95,3 +95,16 @@ test('plans are built with plan_path, in outcomes and prerequisites', () => {
 test('after a plan the agent names what can be started today', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /started today/);
 });
+
+test('the Mi gloss says the work since the previous Mi', () => {
+  assert.match(KIND_GLOSS.mi, /previous Mi/);
+  assert.doesNotMatch(KIND_GLOSS.mi, /everything reachable/);
+});
+
+test('the prompt no longer teaches a hand-linked sequence toward a milestone', () => {
+  assert.doesNotMatch(AGENT_SYSTEM_PROMPT, /a sequence of work toward a milestone/);
+});
+
+test('the semantics say a Kai also stops a Mi\'s walk', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /or at a Kai/);
+});

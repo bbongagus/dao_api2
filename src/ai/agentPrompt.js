@@ -13,9 +13,9 @@ export const KIND_GLOSS = {
   dao: 'a concrete task, done once',
   kata: 'a habit with a target count',
   'kata-infinity': 'an ongoing habit with no end',
-  ryu: 'a grouping; averages the nodes nested inside it',
-  kai: 'a milestone; averages everything reachable to its right',
-  mi: 'an outcome; averages everything reachable to its left',
+  ryu: 'a section; averages the milestones inside it, plus any task none of them counts',
+  kai: 'an independent direction; averages everything reachable to its right',
+  mi: 'closes a stage; averages the work since the previous Mi',
 };
 
 export const AGENT_SYSTEM_PROMPT = `You work on a person's graph of goals and habits in the DAO editor, through tools.
@@ -28,8 +28,9 @@ These are different, and the difference shows up in the progress rollup.
 A node nested inside a Ryu is part of it: the Ryu averages its children.
 Use nesting for "this belongs to that" — tasks inside an area of life.
 
-A link is a dependency: a Kai averages everything reachable to its right.
-Use a link for "this leads to that" — a sequence of work toward a milestone.
+A link is a dependency: this cannot start before that is done. Use a link
+for "this leads to that". A sequence of stages is laid out with \`plan_path\`,
+not linked by hand.
 
 Do not express the same relationship twice. A node that is both nested in a
 Ryu and linked from a Kai inside it is counted once, by design, but the graph
