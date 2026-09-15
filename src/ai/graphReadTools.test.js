@@ -23,6 +23,10 @@ const graph = [
     linkedNodeIds: { downstream: ['offer'] },
   }),
   n('offer', 'Получить оффер'),
+  n('vision', 'Видение', {
+    nodeType: 'fundamental', nodeSubtype: 'upstream',
+    linkedNodeIds: { upstream: ['visa'] },
+  }),
 ];
 
 const tools = () => createReadTools(graph, buildAliasTable(graph));
@@ -99,4 +103,59 @@ test('an empty graph still answers overview', () => {
   const empty = createReadTools([], buildAliasTable([]));
 
   assert.match(empty.overview(), /\p{L}/u);
+});
+
+test('inspect renders upstream links on mi nodes', () => {
+  const out = tools().inspect({ alias: 'n6', depth: 1 });
+
+  assert.match(out, /n4 → n6/, 'upstream link shown as sources → alias');
+});
+
+test('overview shows upstream links on mi nodes', () => {
+  const out = tools().overview();
+
+  assert.match(out, /n4 → n6/, 'upstream link appears in overview too');
+});
+
+test('inspect caps children per level and explains the cut', () => {
+  const manyChildren = [
+    n('parent', 'Родитель', {
+      nodeType: 'fundamental', nodeSubtype: 'category',
+      children: Array.from({ length: 50 }, (_, i) =>
+        n(`child${i}`, `Дитя ${i}`, { description: `Описание ${i}` })
+      ),
+    }),
+  ];
+  const out = createReadTools(manyChildren, buildAliasTable(manyChildren)).inspect({
+    alias: 'n1',
+    depth: 2,
+  });
+
+  assert.match(out, /… 10 more below/, 'explains how many children were omitted (50 - 40 = 10)');
+});
+
+test('search truncates at 25 and explains how many were cut', () => {
+  const manyMatches = Array.from({ length: 30 }, (_, i) =>
+    n(`node${i}`, `Поиск ${i}`, { description: `Результат ${i}` })
+  );
+  const out = createReadTools(manyMatches, buildAliasTable(manyMatches)).search({
+    text: 'Поиск',
+  });
+
+  assert.match(out, /5 more/, 'tells the model 5 more matched (30 - 25 = 5)');
+});
+
+test('inspect never shows a uuid', () => {
+  const out = tools().inspect({ alias: 'n1', depth: 2 });
+
+  assert.equal(out.includes('health'), false, 'health uuid should not appear');
+  assert.equal(out.includes('run'), false, 'run uuid should not appear');
+  assert.equal(out.includes('shoes'), false, 'shoes uuid should not appear');
+});
+
+test('search never shows a uuid', () => {
+  const out = tools().search({ text: 'кроссовки' });
+
+  assert.equal(out.includes('shoes'), false, 'shoes uuid should not appear');
+  assert.equal(out.includes('health'), false, 'health uuid should not appear');
 });

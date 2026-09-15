@@ -54,10 +54,15 @@ export function createReadTools(nodes, aliases) {
     const inside = countDescendants(node);
     if (inside > 0) parts.push(`${inside} inside`);
 
-    const links = (node.linkedNodeIds?.downstream || [])
+    const downstreamLinks = (node.linkedNodeIds?.downstream || [])
       .map((id) => aliases.aliasOf(id))
       .filter(Boolean);
-    if (links.length) parts.push(`${alias} → ${links.join(', ')}`);
+    if (downstreamLinks.length) parts.push(`${alias} → ${downstreamLinks.join(', ')}`);
+
+    const upstreamLinks = (node.linkedNodeIds?.upstream || [])
+      .map((id) => aliases.aliasOf(id))
+      .filter(Boolean);
+    if (upstreamLinks.length) parts.push(`${upstreamLinks.join(', ')} → ${alias}`);
 
     if (node.isDone) parts.push('done');
 
@@ -84,6 +89,7 @@ export function createReadTools(nodes, aliases) {
 
       const limit = Math.max(1, Math.min(Number(depth) || 2, 6));
       const out = [];
+      const CHILDREN_CAP = 40;
 
       const walk = (current, indent) => {
         out.push(line(current, { description: 'full', indent }));
@@ -92,9 +98,16 @@ export function createReadTools(nodes, aliases) {
           if (inside > 0) out.push(`${'  '.repeat(indent + 1)}… ${inside} more below, inspect ${current.alias} with a greater depth to see them`);
           return;
         }
-        for (const child of current.node.children || []) {
+        const children = current.node.children || [];
+        const shown = Math.min(children.length, CHILDREN_CAP);
+        for (let i = 0; i < shown; i++) {
+          const child = children[i];
           const childEntry = aliases.entryAt(aliases.aliasOf(child.id));
           if (childEntry) walk(childEntry, indent + 1);
+        }
+        if (children.length > CHILDREN_CAP) {
+          const omitted = children.length - CHILDREN_CAP;
+          out.push(`${'  '.repeat(indent + 1)}… ${omitted} more below, inspect ${current.alias} with a greater depth to see them`);
         }
       };
       walk(entry, 0);
@@ -112,14 +125,22 @@ export function createReadTools(nodes, aliases) {
 
       if (hits.length === 0) return `Nothing matches "${text}".`;
 
-      return hits
-        .slice(0, 25)
+      const shown = Math.min(hits.length, 25);
+      const results = hits
+        .slice(0, shown)
         .map((entry) => {
           const path = aliases.pathOf(entry.alias);
           const where = path.length ? ` — inside ${path.join(' › ')}` : '';
           return `${line(entry, { description: 'short' })}${where}`;
         })
         .join('\n');
+
+      if (hits.length > shown) {
+        const more = hits.length - shown;
+        return `${results}\n\n${more} more matched but are not shown here.`;
+      }
+
+      return results;
     },
   };
 }
