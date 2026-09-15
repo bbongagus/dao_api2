@@ -43,44 +43,50 @@ export const GraphPlanSchema = z.object({
 
 export const GRAPH_SEMANTICS = `## How the graph reads
 
-Left to right: what happens first sits further left, what it leads to sits to
-the right. An arrow means "this feeds into that", not "do this next".
+Left to right, in time: what has to happen first sits further left. An arrow
+means "this cannot start before that is done". If a step waits for another -
+the visa for the certificate, the decree for the interview - there is an
+arrow between them, whichever part of the graph each sits in. A dependency
+written only in a description is a mistake: the graph then shows as possible
+now something that is not.
 
-## The five kinds, and what progress each one reports
+## The kinds, and what progress each one reports
 
 - dao/simple - a concrete task. Progress is 0 or 1: done or not.
+- dao/withChildren - a step with a checklist inside. Progress is the share of
+  the checklist done.
 - repeatable/bounded - a habit with a target count. Progress is
   completed / target, so it moves gradually.
 - repeatable/infinity - an ongoing habit with no end. Progress is 1 only on a
   day it was ticked, and 0 otherwise.
-- fundamental/downstream - a milestone. Progress is the average of everything
-  reachable to its right.
-- fundamental/upstream - an outcome fed by what came before it. Progress is
-  the average of everything reachable to its left.
-- fundamental/category - a grouping. On a flat plan it behaves like a
-  milestone: the average of what it points to.
+- fundamental/upstream (Mi) - closes a stage. Progress is the work since the
+  previous Mi: it walks left and stops at the previous Mi without counting it.
+- fundamental/downstream (Kai) - everything reachable to its right. It walks
+  through every Mi and Kai on the way and counts what lies beyond them too.
+- fundamental/category (Ryu) - a section. It averages the Mi and Kai inside
+  it, plus any task none of them counts.
 
 ## Rules that follow from how progress is computed
 
 An aggregate averages its dependencies **without weighting them**. One task
 and a ten-task branch hanging off the same parent count the same. So keep the
-branches under one parent comparable in size - if one area needs ten steps and
-another needs one, give the small one its own milestone rather than hanging a
-lone task beside a large branch.
+stages of one plan comparable in size - if one needs ten steps and another
+one, give the detail of the big one a checklist, or split it.
 
 A chain counts every node in it. If a milestone points at A, and A points at
-B, and B at C, the milestone averages over A, B and C - not just A. Use chains
-for genuine sequence, not to express detail.
+B, and B at C, the milestone averages over A, B and C - not just A.
 
-Do not point one milestone at another milestone. The inner one dissolves and
-its tasks are counted individually by the outer one, so the grouping you meant
-to express is lost. Milestones should sit side by side, each over its own
-tasks.
+Stages that follow each other are closed by a Mi each, and the next stage's
+first steps hang off that Mi. Each Mi then reports its own stage, and the
+section reports the average of the stages.
 
-Keep repeatable/infinity out of a milestone's branch. It reads as 0 on any day
-it has not been ticked, which would drag the milestone down every morning.
-Ongoing habits belong on their own, not under a goal that is supposed to
-complete.
+A Kai counts everything to its right, so keep it for a direction that depends
+on nothing else and that nothing else depends on. Never run a Kai into
+another stage or point it at another Kai: it would count that work too.
+
+Keep repeatable/infinity out of any stage or section that is meant to finish.
+It reads as 0 on any day it has not been ticked, which would drag progress
+down every morning. Ongoing habits belong on their own.
 
 ## Descriptions
 

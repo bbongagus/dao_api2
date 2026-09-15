@@ -72,3 +72,26 @@ test('the closing words propose rather than report, since nothing is applied yet
 test('the closing words are plain prose: no headings, bold or bullets', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /no headings, no bold, no bullet points/i);
 });
+
+test('an arrow is taught as order, not only as feeding in', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /cannot start before/);
+  assert.doesNotMatch(AGENT_SYSTEM_PROMPT, /not "do this next"/);
+});
+
+test('milestones are no longer told to sit side by side', () => {
+  assert.doesNotMatch(AGENT_SYSTEM_PROMPT, /Milestones should sit side by side/);
+});
+
+test('stages that follow each other are closed by a Mi', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /stops at the previous Mi/);
+});
+
+test('plans are built with plan_path, in outcomes and prerequisites', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /plan_path/);
+  assert.match(AGENT_SYSTEM_PROMPT, /prerequisites/);
+  assert.match(AGENT_SYSTEM_PROMPT, /checklist/);
+});
+
+test('after a plan the agent names what can be started today', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /started today/);
+});
