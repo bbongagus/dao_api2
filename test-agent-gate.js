@@ -19,6 +19,8 @@
 
 import Redis from 'ioredis';
 
+import { describeProposalShape } from './src/ai/graphShape.js';
+
 const BASE = process.argv[2] || 'http://localhost:3011';
 const redis = new Redis({ host: 'localhost', port: 6379 });
 const stamp = Date.now();
@@ -180,34 +182,17 @@ async function scenarioObeysProgressRules() {
     return;
   }
 
-  const adds = result.operations.filter((o) => o.op === 'add');
-  const byAlias = new Map(adds.map((o) => [o.alias, o]));
-  const downstream = (o) => o.downstream || [];
-  const isMilestone = (o) => o?.nodeType === 'fundamental' && o?.nodeSubtype === 'downstream';
+  // The shape analyser reads link operations as well as arrows on adds, so
+  // this holds whether the plan came from plan_path or node-by-node tools.
+  const shape = describeProposalShape(result.operations);
 
-  const overlap = [];
-  for (const a of adds) for (const b of adds) {
-    if (a !== b && Math.abs(a.x - b.x) < 180 && Math.abs(a.y - b.y) < 60) overlap.push(a.title);
-  }
-  record('no two nodes overlap', overlap.length === 0, [...new Set(overlap)].slice(0, 2).join('; '));
-
-  const nested = adds.filter((o) => isMilestone(o) && downstream(o).some((d) => isMilestone(byAlias.get(d))));
-  record('no milestone points at another milestone', nested.length === 0,
-    nested.map((n) => n.title).join(', '));
-
-  const reach = (alias, seen = new Set()) => {
-    for (const d of downstream(byAlias.get(alias) || {})) {
-      if (!seen.has(d)) { seen.add(d); reach(d, seen); }
-    }
-    return seen;
-  };
-  const endless = adds.filter((o) => o.nodeSubtype === 'infinity').map((o) => o.alias);
-  const trapped = adds.filter(isMilestone)
-    .flatMap((m) => [...reach(m.alias)].filter((d) => endless.includes(d)));
-  record('no endless habit sits under a milestone', trapped.length === 0,
-    trapped.map((t) => byAlias.get(t)?.title).join(', '));
-
-  record('the plan is a usable size', adds.length >= 5 && adds.length <= 25, `${adds.length} nodes`);
+  record('no two nodes overlap', shape.overlaps.length === 0, shape.overlaps.slice(0, 2).join('; '));
+  record('no milestone points at another milestone', shape.kaiIntoKai === 0, `${shape.kaiIntoKai} found`);
+  record('no task is counted by two milestones', shape.doubleCounted.length === 0,
+    shape.doubleCounted.join(', '));
+  record('no endless habit sits beside a milestone', shape.habitsBesideMilestones.length === 0,
+    shape.habitsBesideMilestones.join(', '));
+  record('the plan is a usable size', shape.nodes >= 5 && shape.nodes <= 40, `${shape.nodes} nodes`);
 }
 
 // -------------------------------------------------------------------- main

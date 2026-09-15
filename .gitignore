@@ -80,3 +80,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*.worktrees/
+
+# Live eval runs (eval-graph-builder.js): full proposals, regenerated per run
+eval-results/
