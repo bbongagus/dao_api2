@@ -10,6 +10,8 @@
  * `search` finds a node when the agent does not know where it is.
  */
 
+import { buildLinkIndex } from './links.js';
+
 const SHORT_DESCRIPTION = 120;
 
 /**
@@ -46,7 +48,9 @@ const countDescendants = (node) => {
   return total;
 };
 
-export function createReadTools(nodes, aliases) {
+export function createReadTools(nodes, aliases, edges = []) {
+  const links = buildLinkIndex(nodes, edges);
+
   const line = (entry, { description, indent = 0 }) => {
     const { alias, node } = entry;
     const parts = [`${'  '.repeat(indent)}${alias} [${kindNameOf(node)}] ${node.title}`];
@@ -54,12 +58,12 @@ export function createReadTools(nodes, aliases) {
     const inside = countDescendants(node);
     if (inside > 0) parts.push(`${inside} inside`);
 
-    const downstreamLinks = (node.linkedNodeIds?.downstream || [])
+    const downstreamLinks = links.downstreamOf(node.id)
       .map((id) => aliases.aliasOf(id))
       .filter(Boolean);
     if (downstreamLinks.length) parts.push(`${alias} → ${downstreamLinks.join(', ')}`);
 
-    const upstreamLinks = (node.linkedNodeIds?.upstream || [])
+    const upstreamLinks = links.upstreamOf(node.id)
       .map((id) => aliases.aliasOf(id))
       .filter(Boolean);
     if (upstreamLinks.length) parts.push(`${upstreamLinks.join(', ')} → ${alias}`);

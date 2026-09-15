@@ -6,13 +6,18 @@
 
 import express from 'express';
 import { DEFAULT_USER_ID } from '../services/graphService.js';
+import { clipText } from '../services/journal.js';
+
+// An inspect of a large branch runs long; the journal keeps enough to see
+// what the agent was looking at.
+const TOOL_RESULT_LIMIT = 4000;
 
 const router = express.Router();
 
 /**
  * Setup AI routes
  */
-export function setupAIRoutes({ getGraph }) {
+export function setupAIRoutes({ getGraph, journal = null }) {
   // AI Planning endpoint (dynamic import to avoid startup crash if API key missing)
   // Copied from simple-server.js lines 1044-1088
   router.post('/generate-plan', async (req, res) => {
@@ -97,27 +102,48 @@ export function setupAIRoutes({ getGraph }) {
     let aborted = false;
     res.on('close', () => { aborted = true; });
 
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+    const startedAt = Date.now();
+    const toolCalls = [];
+    let result = null;
+
     try {
       const Anthropic = (await import('@anthropic-ai/sdk')).default;
       const { runGraphAgent } = await import('../ai/agent.js');
 
       const graph = await getGraph(graphId || 'main', userId);
 
-      const result = await runGraphAgent({
+      result = await runGraphAgent({
         client: new Anthropic(),
-        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5',
+        model,
         nodes: graph?.nodes || [],
+        edges: graph?.edges || [],
         currentPath: Array.isArray(currentPath) ? currentPath : [],
         messages,
         emit: (event) => { if (!aborted) emit(event); },
+        onToolCall: (call) => toolCalls.push(call),
       });
 
       if (!aborted) emit({ type: 'result', result });
     } catch (error) {
       console.error('❌ AI chat error:', error);
-      if (!aborted) emit({ type: 'error', message: error.message || 'AI chat failed' });
+      result = { type: 'error', message: error.message || 'AI chat failed' };
+      if (!aborted) emit(result);
     } finally {
       if (!aborted) res.end();
+
+      // The turn as it happened, so "what did it just do?" has an answer
+      // after the chat window is gone.
+      const lastRequest = [...messages].reverse().find((m) => m.role === 'user');
+      journal?.record(userId, graphId || 'main', {
+        kind: 'agent_turn',
+        request: lastRequest?.content ?? null,
+        model,
+        ms: Date.now() - startedAt,
+        aborted,
+        tools: toolCalls.map((call) => ({ ...call, result: clipText(call.result, TOOL_RESULT_LIMIT) })),
+        result,
+      });
     }
   });
 

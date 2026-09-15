@@ -60,3 +60,15 @@ test('every kind the tools accept has a gloss in the prompt', () => {
     assert.match(AGENT_SYSTEM_PROMPT, new RegExp('`' + kind.replace('-', '\\-') + '`\\s+—'));
   }
 });
+
+test('the prompt keeps n-names out of what the person reads', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /by title/i);
+});
+
+test('the closing words propose rather than report, since nothing is applied yet', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /what you propose, not what you did/i);
+});
+
+test('the closing words are plain prose: no headings, bold or bullets', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /no headings, no bold, no bullet points/i);
+});

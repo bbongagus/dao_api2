@@ -18,7 +18,10 @@ const graph = [
   n('offer', 'Получить оффер'),
 ];
 
-const make = () => createWriteTools(graph, buildAliasTable(graph));
+const make = (edges = []) => createWriteTools(graph, buildAliasTable(graph), edges);
+
+// Здоровье → Получить оффер, stored the way the server stores it: as an edge.
+const connected = [{ id: 'e1', source: 'health', target: 'offer' }];
 
 test('add stages a node with the kind the agent named', () => {
   const { tools, staged } = make();
@@ -152,7 +155,7 @@ test('a node cannot be linked to itself', () => {
 });
 
 test('unlink stages the reverse', () => {
-  const { tools, staged } = make();
+  const { tools, staged } = make(connected);
 
   tools.unlink({ source: 'n1', target: 'n3' });
 
@@ -356,4 +359,56 @@ test('remove of a node added in this same turn is refused', () => {
   assert.equal(staged.length, 1, 'only the add is staged');
   assert.match(said, /newnode/i, 'names the node');
   assert.match(said, /does not exist yet/i, 'explains it is not real');
+});
+
+// --- A link that already exists is not staged again ---
+
+test('link refuses a connection that already exists', () => {
+  const { tools, staged } = make(connected);
+
+  const said = tools.link({ source: 'n1', target: 'n3' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /already connected/i);
+});
+
+test('link sees an existing connection through linkedNodeIds too', () => {
+  const nodes = [
+    n('a', 'A', { linkedNodeIds: { downstream: ['b'] } }),
+    n('b', 'B', { linkedNodeIds: { upstream: ['a'] } }),
+  ];
+  const { tools, staged } = createWriteTools(nodes, buildAliasTable(nodes));
+
+  const said = tools.link({ source: 'n1', target: 'n2' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /already connected/i);
+});
+
+test('link refuses the same connection staged twice in one turn', () => {
+  const { tools, staged } = make();
+
+  tools.link({ source: 'n1', target: 'n3' });
+  const said = tools.link({ source: 'n1', target: 'n3' });
+
+  assert.equal(staged.length, 1);
+  assert.match(said, /already/i);
+});
+
+test('unlink refuses two nodes that are not connected', () => {
+  const { tools, staged } = make();
+
+  const said = tools.unlink({ source: 'n1', target: 'n3' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /not connected/i);
+});
+
+test('a connection unlinked earlier in the turn can be linked again', () => {
+  const { tools, staged } = make(connected);
+
+  tools.unlink({ source: 'n1', target: 'n3' });
+  tools.link({ source: 'n1', target: 'n3' });
+
+  assert.deepEqual(staged.map((o) => o.op), ['unlink', 'link']);
 });

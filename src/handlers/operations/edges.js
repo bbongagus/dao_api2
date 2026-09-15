@@ -18,7 +18,15 @@ export function handleAddEdge(graph, payload) {
     logger.warn(`Edge ${payload.id} already exists, skipping duplicate add`);
     return true; // Return true as this is not an error
   }
-  
+
+  // A pair is connected or it is not. A second edge between the same two
+  // nodes draws on top of the first, so nobody sees it — but it is stored.
+  const samePair = graph.edges.find(e => e.source === payload.source && e.target === payload.target);
+  if (samePair) {
+    logger.warn(`Edge ${payload.source} → ${payload.target} already exists as ${samePair.id}, skipping ${payload.id}`);
+    return true;
+  }
+
   const newEdge = {
     id: payload.id,
     source: payload.source,

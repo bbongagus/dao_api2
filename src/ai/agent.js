@@ -73,10 +73,12 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
   };
 }
 
-export async function runGraphAgent({ client, model, nodes, currentPath, messages, emit }) {
+export async function runGraphAgent({
+  client, model, nodes, edges = [], currentPath, messages, emit, onToolCall = () => {},
+}) {
   const aliases = buildAliasTable(nodes);
-  const read = createReadTools(nodes, aliases);
-  const { tools: write, staged } = createWriteTools(nodes, aliases);
+  const read = createReadTools(nodes, aliases, edges);
+  const { tools: write, staged } = createWriteTools(nodes, aliases, edges);
 
   emit({ type: 'status', text: aliases.size === 0 ? 'the graph is empty' : `${aliases.size} nodes in the graph` });
 
@@ -100,11 +102,14 @@ export async function runGraphAgent({ client, model, nodes, currentPath, message
     try {
       const result = fn(input);
       emit({ type: 'status', text: describe(input) });
+      onToolCall({ name, input, result });
       return result;
     } catch (error) {
       console.error(`tool ${name} failed:`, error);
       emit({ type: 'status', text: describe(input) });
-      return `That did not work: ${error.message}. Try a different approach.`;
+      const result = `That did not work: ${error.message}. Try a different approach.`;
+      onToolCall({ name, input, result });
+      return result;
     }
   };
 
@@ -120,11 +125,14 @@ export async function runGraphAgent({ client, model, nodes, currentPath, message
       const result = fn(input);
       const ok = typeof result === 'string' && result.startsWith('Staged:');
       emit({ type: 'status', text: ok ? describeDoing(input) : describeFailed(input) });
+      onToolCall({ name, input, result });
       return result;
     } catch (error) {
       console.error(`tool ${name} failed:`, error);
       emit({ type: 'status', text: describeFailed(input) });
-      return `That did not work: ${error.message}. Try a different approach.`;
+      const result = `That did not work: ${error.message}. Try a different approach.`;
+      onToolCall({ name, input, result });
+      return result;
     }
   };
 

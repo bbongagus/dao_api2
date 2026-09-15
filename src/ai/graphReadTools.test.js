@@ -159,3 +159,42 @@ test('search never shows a uuid', () => {
   assert.equal(out.includes('shoes'), false, 'shoes uuid should not appear');
   assert.equal(out.includes('health'), false, 'health uuid should not appear');
 });
+
+// --- Links live in graph.edges. On the server linkedNodeIds is usually empty,
+// so a reader that only looks there sees a graph with no links at all. ---
+
+const staged = [
+  n('stage', 'Этап', { nodeType: 'fundamental', nodeSubtype: 'downstream' }),
+  n('task', 'Задача'),
+];
+const lineOf = (out, alias) => out.split('\n').find((l) => l.startsWith(`${alias} `));
+const readWithEdges = (edges, nodes = staged) => createReadTools(nodes, buildAliasTable(nodes), edges);
+
+test('links are read from the graph edges when linkedNodeIds is empty', () => {
+  const out = readWithEdges([{ id: 'e1', source: 'stage', target: 'task' }]).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [kai] Этап · n1 → n2');
+  assert.equal(lineOf(out, 'n2'), 'n2 [dao] Задача · n1 → n2');
+});
+
+test('a link stored twice, or in both edges and linkedNodeIds, is shown once', () => {
+  const nodes = [{ ...staged[0], linkedNodeIds: { downstream: ['task'] } }, staged[1]];
+  const out = readWithEdges([
+    { id: 'e1', source: 'stage', target: 'task' },
+    { id: 'e2', source: 'stage', target: 'task' },
+  ], nodes).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [kai] Этап · n1 → n2');
+});
+
+test('an edge marked upstream reads from its target to its source', () => {
+  const out = readWithEdges([{ id: 'e1', source: 'task', target: 'stage', direction: 'upstream' }]).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [kai] Этап · n1 → n2');
+});
+
+test('a neutral edge is not a link', () => {
+  const out = readWithEdges([{ id: 'e1', source: 'stage', target: 'task', direction: 'neutral' }]).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [kai] Этап');
+});

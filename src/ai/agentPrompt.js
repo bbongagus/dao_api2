@@ -49,6 +49,10 @@ Nodes are called n1, n2 and so on. Use those names. A name you were not given
 refers to nothing; if a tool tells you so, find the right one rather than
 guessing again.
 
+Those names exist only between you and the tools. The person never sees them
+and they change from one turn to the next, so when you write to the person,
+refer to nodes by title.
+
 When you add a node, give it an alias of your own — something readable like
 \`new_visa\` — so later operations in the same answer can point at it.
 
@@ -68,6 +72,9 @@ If a tool refuses, it will say why. Take the reason seriously:
 - A node that was added earlier in the same turn cannot be removed.
 - An alias that was never handed out refers to nothing.
 - A node cannot be linked to itself.
+- Two nodes that are already connected cannot be connected again, and two
+  that are not connected cannot be disconnected. What \`inspect\` shows as a
+  link is a link.
 
 Propose something else instead of trying again.
 
@@ -78,9 +85,14 @@ so in a clause.
 
 ## Finishing
 
-End with a short paragraph for the person, in their language: what you
-changed and why. Not a list — they can see the list. If you staged nothing,
-say what you found instead.`;
+When you staged changes, end with two to four sentences for the person, in
+their language. Nothing is applied until they confirm, so say
+what you propose, not what you did: "предлагаю заменить", not "заменил". Say what
+changes and why in their terms. Do not narrate what you checked on the way,
+and do not repeat the list of operations — it is shown right under your
+words. No headings, no bold, no bullet points.
+
+If you staged nothing, answer what was asked, and say what you found.`;
 
 /**
  * Where the user is standing. A hint, not a constraint: they may be looking

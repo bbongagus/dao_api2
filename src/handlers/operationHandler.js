@@ -15,6 +15,7 @@
 import { logger } from '../utils/logger.js';
 import { routeOperation } from './operations/index.js';
 import { DEFAULT_USER_ID } from '../services/graphService.js';
+import { describeOperation } from '../services/journal.js';
 
 // Per-graph operation queue: ensures operations for the same graph run sequentially.
 // Key: "userId:graphId", Value: Promise (tail of the queue)
@@ -26,7 +27,7 @@ let operationSeq = 0; // Global sequence counter for debugging
  * @param {Object} deps - Dependencies (getGraph, saveGraph, addOperation, analytics, getNodeIndex)
  */
 export function createOperationHandler(deps) {
-  const { getGraph, saveGraph, addOperation, analytics, getNodeIndex } = deps;
+  const { getGraph, saveGraph, addOperation, analytics, getNodeIndex, journal = null } = deps;
 
   /**
    * Execute a single operation (called from inside the queue)
@@ -40,6 +41,9 @@ export function createOperationHandler(deps) {
       return null;
     }
 
+    // Read before applying: the values an operation replaces are gone after.
+    const change = journal ? describeOperation(graph, operation) : null;
+
     const nodeIndex = getNodeIndex ? getNodeIndex(graphId, userId) : null;
     const success = routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId);
 
@@ -50,6 +54,8 @@ export function createOperationHandler(deps) {
 
     await saveGraph(graphId, graph, userId);
     await addOperation(graphId, operation);
+
+    if (change) await journal.record(userId, graphId, { kind: 'operation', ...change });
 
     return graph;
   }

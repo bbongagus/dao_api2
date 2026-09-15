@@ -14,7 +14,8 @@
     "docker:logs": "docker-compose -f docker-compose.clean.yml logs -f",
     "docker:build": "docker-compose -f docker-compose.clean.yml build",
     "test": "node --test src/**/*.test.js",
-    "test:snapshots": "node test-snapshots.js"
+    "test:snapshots": "node test-snapshots.js",
+    "journal": "node --env-file-if-exists=.env scripts/journal.js"
   },
   "keywords": [
     "optimistic-ui",

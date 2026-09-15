@@ -10,13 +10,23 @@
  */
 
 import { KIND_TO_TYPES, KIND_LIST } from './graphReadTools.js';
+import { buildLinkIndex } from './links.js';
 
 export { KIND_TO_TYPES, KIND_LIST };
 
-export function createWriteTools(nodes, aliases) {
+export function createWriteTools(nodes, aliases, edges = []) {
   const staged = [];
   const minted = new Map(); // alias the model invented → its staged add
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
+
+  // Whether two nodes are connected once what is staged so far is applied.
+  // A link staged twice, or on top of one that exists, is applied twice.
+  const links = buildLinkIndex(nodes, edges);
+  const pair = (from, to) => `${from}→${to}`;
+  const stagedLinks = new Set();
+  const stagedUnlinks = new Set();
+  const connected = (from, to) =>
+    stagedLinks.has(pair(from, to)) || (links.has(from, to) && !stagedUnlinks.has(pair(from, to)));
 
   /** A reference is either an existing node, or one staged in this same turn. */
   const resolve = (ref) => {
@@ -157,7 +167,16 @@ export function createWriteTools(nodes, aliases) {
         if (!to) return `There is no node called ${target}.`;
         if (from.id === to.id) return 'A node cannot lead to itself.';
 
+        if (stagedLinks.has(pair(from.id, to.id))) {
+          return `${source} → ${target} is already staged in this turn. Nothing to add.`;
+        }
+        if (connected(from.id, to.id)) {
+          return `${source} and ${target} are already connected (${source} → ${target}). Nothing to add.`;
+        }
+
         staged.push({ op: 'link', source: from.id, target: to.id });
+        stagedLinks.add(pair(from.id, to.id));
+        stagedUnlinks.delete(pair(from.id, to.id));
         return `Staged: ${source} → ${target}.`;
       },
 
@@ -171,7 +190,16 @@ export function createWriteTools(nodes, aliases) {
         if (!from) return `There is no node called ${source}.`;
         if (!to) return `There is no node called ${target}.`;
 
+        // The editor disconnects a pair whichever way the arrow points.
+        if (!connected(from.id, to.id) && !connected(to.id, from.id)) {
+          return `${source} and ${target} are not connected, so there is nothing to disconnect.`;
+        }
+
         staged.push({ op: 'unlink', source: from.id, target: to.id });
+        for (const key of [pair(from.id, to.id), pair(to.id, from.id)]) {
+          stagedUnlinks.add(key);
+          stagedLinks.delete(key);
+        }
         return `Staged: disconnect ${source} from ${target}.`;
       },
     },

@@ -23,6 +23,7 @@ import progressSnapshots from './progress-snapshots.js';
 import dailyHabitCounter from './services/dailyHabitCounter.js';
 import { DEFAULT_USER_ID } from './services/graphService.js';
 import { getNodeIndex, clearNodeIndex } from './services/nodeIndex.js';
+import { createJournal } from './services/journal.js';
 
 // Import handlers
 import { setupWebSocketHandler } from './handlers/websocketHandler.js';
@@ -52,6 +53,10 @@ const clients = new Map();
 
 // Initialize Analytics Service
 const analytics = new SimplifiedAnalytics(redis);
+
+// What changed and what the agent did, per user and graph. Read it with
+// `npm run journal`.
+const journal = createJournal(redis);
 
 /**
  * Redis Operations - Core data access
@@ -161,7 +166,8 @@ const applyOperation = createOperationHandler({
   saveGraph,
   addOperation,
   analytics,
-  getNodeIndex: getGraphNodeIndex
+  getNodeIndex: getGraphNodeIndex,
+  journal
 });
 
 // Setup WebSocket handler
@@ -177,7 +183,7 @@ setupWebSocketHandler({
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients }));
 app.use('/api/analytics', setupAnalyticsRoutes({ analytics, progressSnapshots }));
-app.use('/api/ai', setupAIRoutes({ getGraph }));
+app.use('/api/ai', setupAIRoutes({ getGraph, journal }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

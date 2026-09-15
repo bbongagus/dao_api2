@@ -259,3 +259,69 @@ test('a non-API error thrown by the runner still comes back as an error turn, no
   assert.equal(turn.type, 'error');
   assert.match(turn.message, /\p{L}/u);
 });
+
+// --- runGraphAgent, driven by a stub that calls the agent's own tools ---
+
+/** A stub client whose toolRunner runs the given tool calls, then ends the turn. */
+function scriptedClient(calls, results = []) {
+  return {
+    beta: {
+      messages: {
+        async toolRunner({ tools }) {
+          for (const [name, input] of calls) {
+            results.push(await tools.find((t) => t.name === name).run(input));
+          }
+          return { content: [{ type: 'text', text: 'Готово.' }], stop_reason: 'end_turn' };
+        },
+      },
+    },
+  };
+}
+
+const connectedGraph = {
+  nodes: [
+    { id: 'stage', title: 'Этап', nodeType: 'fundamental', nodeSubtype: 'downstream', description: '', children: [] },
+    { id: 'task', title: 'Задача', nodeType: 'dao', nodeSubtype: 'simple', description: '', children: [] },
+  ],
+  edges: [{ id: 'e1', source: 'stage', target: 'task' }],
+};
+
+const runScripted = (calls, extra = {}) => {
+  const results = [];
+  const turn = runGraphAgent({
+    client: scriptedClient(calls, results),
+    model: 'claude-sonnet-5',
+    ...connectedGraph,
+    currentPath: [],
+    messages: [{ role: 'user', content: 'что тут связано?' }],
+    emit: noEmit,
+    ...extra,
+  });
+  return { turn, results };
+};
+
+test('the agent reads links from the graph edges it was given', async () => {
+  const { turn, results } = runScripted([['overview', {}]]);
+  await turn;
+
+  assert.match(results[0], /n1 → n2/);
+});
+
+test('the agent does not stage a link the graph already has', async () => {
+  const { turn } = runScripted([['link_nodes', { source: 'n1', target: 'n2' }]]);
+
+  assert.equal((await turn).type, 'text');
+});
+
+test('every tool call is reported with what it was asked and what it answered', async () => {
+  const calls = [];
+  const { turn } = runScripted(
+    [['overview', {}], ['link_nodes', { source: 'n1', target: 'n2' }]],
+    { onToolCall: (call) => calls.push(call) },
+  );
+  await turn;
+
+  assert.deepEqual(calls.map((c) => c.name), ['overview', 'link_nodes']);
+  assert.deepEqual(calls[1].input, { source: 'n1', target: 'n2' });
+  assert.match(calls[1].result, /already connected/);
+});
