@@ -167,3 +167,114 @@ test('an operation aimed at an unknown alias is refused', () => {
   assert.equal(staged.length, 0);
   assert.match(said, /n99/);
 });
+
+// Fix 1: Type guards on input fields
+test('add with non-string title does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({ alias: 'x', parent: '', title: 42, description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged.length, 0, 'nothing staged');
+  assert.match(said, /string/i, 'refusal mentions the type issue');
+  assert.equal(typeof said, 'string', 'returns a string, does not throw');
+});
+
+test('add with non-string alias does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({ alias: 123, parent: '', title: 'T', description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /alias/i);
+});
+
+test('add with non-string parent does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({ alias: 'x', parent: 123, title: 'T', description: '', kind: 'dao', x: 0, y: 0 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /parent/i);
+});
+
+test('add with non-string kind does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.add({ alias: 'x', parent: '', title: 'T', description: '', kind: 42, x: 0, y: 0 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /kind/i);
+});
+
+test('update with non-string target does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.update({ target: 123, title: 'T' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /target/i);
+});
+
+test('remove with non-string target does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.remove({ target: 123 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /target/i);
+});
+
+test('link with non-string source does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.link({ source: 123, target: 'n3' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /source/i);
+});
+
+test('link with non-string target does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.link({ source: 'n1', target: 123 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /target/i);
+});
+
+test('unlink with non-string source does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.unlink({ source: 123, target: 'n3' });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /source/i);
+});
+
+test('unlink with non-string target does not throw and returns a refusal', () => {
+  const { tools, staged } = make();
+
+  const said = tools.unlink({ source: 'n1', target: 123 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /target/i);
+});
+
+// Fix 2: Delete protection for nodes with children staged in the same turn
+test('remove refuses a node with children staged in the same turn', () => {
+  const { tools, staged } = make();
+
+  tools.add({ alias: 'cat', parent: '', title: 'Category', description: '', kind: 'ryu', x: 0, y: 0 });
+  const said = tools.add({ alias: 'child', parent: 'cat', title: 'Child', description: '', kind: 'dao', x: 0, y: 0 });
+
+  // First add succeeds, second add should succeed too (it records parent as 'cat' alias)
+  assert.equal(staged.length, 2, 'both adds staged');
+  assert.match(said, /child/i);
+
+  // Now try to remove the parent
+  const removeSaid = tools.remove({ target: 'cat' });
+
+  assert.equal(staged.length, 2, 'remove is refused, not staged');
+  assert.match(removeSaid, /cat/i, 'names the node being removed');
+  assert.match(removeSaid, /child/i, 'mentions the child');
+});

@@ -31,12 +31,13 @@ export function createWriteTools(nodes, aliases) {
     staged,
     tools: {
       add({ alias, parent, title, description, kind, x, y }) {
-        if (!alias) return 'Give the new node an alias so other operations can point at it.';
+        if (typeof alias !== 'string' || !alias) return 'Give the new node an alias (a string) so other operations can point at it.';
         if (minted.has(alias) || aliases.nodeAt(alias)) {
           return `The alias ${alias} is already taken in this turn. Pick another.`;
         }
-        if (!title || !title.trim()) return 'A node needs a title.';
+        if (typeof title !== 'string' || !title.trim()) return 'A node needs a title (a string).';
 
+        if (typeof kind !== 'string') return 'A kind must be a string.';
         const types = KIND_TO_TYPES[kind];
         if (!types) {
           return `${kind} is not a kind I know. Use one of: ${KIND_LIST.join(', ')}.`;
@@ -44,6 +45,7 @@ export function createWriteTools(nodes, aliases) {
 
         let parentId = null;
         if (parent) {
+          if (typeof parent !== 'string') return 'A parent must be a string.';
           const found = resolve(parent);
           if (!found) return `There is no node called ${parent} to put this inside.`;
           parentId = found.id;
@@ -69,6 +71,7 @@ export function createWriteTools(nodes, aliases) {
       },
 
       update({ target, title, description, kind, requiredCompletions }) {
+        if (typeof target !== 'string') return 'A target must be a string.';
         const found = resolve(target);
         if (!found) return `There is no node called ${target}.`;
 
@@ -78,6 +81,7 @@ export function createWriteTools(nodes, aliases) {
         if (typeof description === 'string' && description.trim()) operation.description = description;
 
         if (kind) {
+          if (typeof kind !== 'string') return 'A kind must be a string.';
           const types = KIND_TO_TYPES[kind];
           if (!types) return `${kind} is not a kind I know. Use one of: ${KIND_LIST.join(', ')}.`;
           Object.assign(operation, types);
@@ -97,13 +101,22 @@ export function createWriteTools(nodes, aliases) {
       },
 
       remove({ target }) {
+        if (typeof target !== 'string') return 'A target must be a string.';
         const found = resolve(target);
         if (!found) return `There is no node called ${target}.`;
 
         // Deleting a parent takes its subtree with it, and nothing the agent
-        // has read tells it what that costs.
+        // has read tells it what that costs. Check both existing children and
+        // any children staged to be added in this same turn.
         if (found.node?.children?.length > 0) {
           return `I will not delete "${found.node.title}" — it has ${found.node.children.length} node(s) inside, and they would go with it. Remove or move those first, or change it instead.`;
+        }
+
+        const stagedChildren = staged.filter(op => op.op === 'add' && op.parent === found.id);
+        if (stagedChildren.length > 0) {
+          const nodeName = found.node ? `"${found.node.title}"` : target;
+          const childNames = stagedChildren.map(op => `${op.alias}`).join(', ');
+          return `I will not delete ${nodeName} — it has ${stagedChildren.length} node(s) staged inside in this turn (${childNames}), and they would go with it. Remove or move those first, or change it instead.`;
         }
 
         staged.push({ op: 'delete', target: found.id });
@@ -112,6 +125,8 @@ export function createWriteTools(nodes, aliases) {
       },
 
       link({ source, target }) {
+        if (typeof source !== 'string') return 'A source must be a string.';
+        if (typeof target !== 'string') return 'A target must be a string.';
         const from = resolve(source);
         const to = resolve(target);
         if (!from) return `There is no node called ${source}.`;
@@ -123,6 +138,8 @@ export function createWriteTools(nodes, aliases) {
       },
 
       unlink({ source, target }) {
+        if (typeof source !== 'string') return 'A source must be a string.';
+        if (typeof target !== 'string') return 'A target must be a string.';
         const from = resolve(source);
         const to = resolve(target);
         if (!from) return `There is no node called ${source}.`;
