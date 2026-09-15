@@ -11,6 +11,7 @@
 
 import { KIND_TO_TYPES, KIND_LIST } from './graphReadTools.js';
 import { buildLinkIndex } from './links.js';
+import { compilePlan } from './planCompiler.js';
 
 export { KIND_TO_TYPES, KIND_LIST };
 
@@ -201,6 +202,34 @@ export function createWriteTools(nodes, aliases, edges = []) {
           stagedLinks.delete(key);
         }
         return `Staged: disconnect ${source} from ${target}.`;
+      },
+
+      plan(input) {
+        // One plan per turn: a second would mint the same plan: aliases, and
+        // two plans at once is not something a person can review.
+        if ([...minted.keys()].some((alias) => alias.startsWith('plan:'))) {
+          return 'A plan is already staged in this turn. Adjust it with the other tools, or ask for a new plan next turn.';
+        }
+
+        const section = typeof input?.section === 'string' ? input.section.trim() : '';
+        if (section) {
+          const found = resolve(section);
+          if (found?.error) return found.error;
+        }
+
+        const compiled = compilePlan(input, { nodes, aliases });
+        if (compiled.error) return compiled.error;
+
+        for (const operation of compiled.operations) {
+          staged.push({ ...operation, plan: true });
+          if (operation.op === 'add') minted.set(operation.alias, operation);
+          if (operation.op === 'link') stagedLinks.add(pair(operation.source, operation.target));
+        }
+
+        const now = compiled.startNow.length
+          ? ` Can start now: ${compiled.startNow.map((title) => `"${title}"`).join(', ')}.`
+          : '';
+        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}`;
       },
     },
   };

@@ -38,12 +38,15 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
   const said = (summary || '').trim();
   const ranOutOfRoom = 'I ran out of room while looking around before I finished — ask me to continue, or narrow the request.';
 
-  if (staged.length > MAX_OPERATIONS) {
+  // A plan from plan_path is bounded by its own node limit. The cap is for
+  // ordinary edits; applied to a plan it would refuse the arrows it needs.
+  const ordinary = staged.filter((o) => !o.plan).length;
+  if (ordinary > MAX_OPERATIONS) {
     return {
       type: 'text',
       message: stoppedEarly
-        ? `That came to ${staged.length} changes at once, which is more than I will propose in one step, and I still ran out of room before I was done. Ask for one part of it at a time.`
-        : `That came to ${staged.length} changes at once, which is more than I will propose in one step. Ask for one part of it at a time.`,
+        ? `That came to ${ordinary} changes at once, which is more than I will propose in one step, and I still ran out of room before I was done. Ask for one part of it at a time.`
+        : `That came to ${ordinary} changes at once, which is more than I will propose in one step. Ask for one part of it at a time.`,
     };
   }
 
@@ -227,6 +230,35 @@ export async function runGraphAgent({
         ({ source, target }) => `disconnecting "${titleOf(source)}" from "${titleOf(target)}"`,
         ({ source, target }) => `could not disconnect "${titleOf(source)}" from "${titleOf(target)}"`,
         (input) => write.unlink(input),
+      ),
+    }),
+    betaZodTool({
+      name: 'plan_path',
+      description: 'Lay out a plan as stages and the steps inside them. The server turns it into milestones, arrows and positions. Nothing is created until the person confirms.',
+      inputSchema: z.object({
+        section: z.string().describe('Alias of the ryu to build inside, or "" to create a new section'),
+        sectionTitle: z.string().describe('Title of the new section when section is ""'),
+        sectionDescription: z.string(),
+        stages: z.array(z.object({
+          id: z.string().describe('Short id, unique among stages'),
+          title: z.string().describe('The outcome that closes the stage, e.g. "Удостоверение получено"'),
+          description: z.string(),
+          after: z.array(z.string()).describe('ids of the stages that must be complete before this one can start'),
+          steps: z.array(z.object({
+            id: z.string().describe('Short id, unique within the stage'),
+            title: z.string(),
+            description: z.string(),
+            after: z.array(z.string()).describe('ids of steps in this same stage that must be done first'),
+            checklist: z.array(z.string()).describe('Items to tick inside this step, or [] for none'),
+            repeat: z.number().describe('How many times it must be done; 0 for once'),
+          })),
+        })),
+      }),
+      run: reportedWrite(
+        'plan_path',
+        ({ section, sectionTitle }) => `planning "${sectionTitle || titleOf(section)}"`,
+        ({ section, sectionTitle }) => `could not plan "${sectionTitle || titleOf(section)}"`,
+        (input) => write.plan(input),
       ),
     }),
   ];

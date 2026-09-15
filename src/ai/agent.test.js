@@ -325,3 +325,27 @@ test('every tool call is reported with what it was asked and what it answered', 
   assert.deepEqual(calls[1].input, { source: 'n1', target: 'n2' });
   assert.match(calls[1].result, /already connected/);
 });
+
+test('a plan is offered even when its arrows run past the operation cap', () => {
+  const staged = Array.from({ length: 45 }, () => ({ op: 'link', plan: true }));
+
+  assert.equal(shapeTurn({ staged, summary: 'план' }).type, 'changes');
+});
+
+test('the agent can lay out a plan through plan_path', async () => {
+  const step = (id, title, after = []) => ({ id, title, description: '', after, checklist: [], repeat: 0 });
+  const statuses = [];
+  const { turn } = runScripted(
+    [['plan_path', {
+      section: '', sectionTitle: 'Переезд', sectionDescription: '',
+      stages: [{ id: 'visa', title: 'Виза получена', description: '', after: [], steps: [step('apply', 'Подать на визу')] }],
+    }]],
+    { emit: (e) => { if (e.type === 'status') statuses.push(e.text); } },
+  );
+
+  const result = await turn;
+
+  assert.equal(result.type, 'changes');
+  assert.ok(result.operations.some((o) => o.nodeSubtype === 'upstream'));
+  assert.ok(statuses.includes('planning "Переезд"'));
+});

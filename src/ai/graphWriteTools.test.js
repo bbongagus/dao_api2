@@ -412,3 +412,62 @@ test('a connection unlinked earlier in the turn can be linked again', () => {
 
   assert.deepEqual(staged.map((o) => o.op), ['unlink', 'link']);
 });
+
+// --- plan_path ---
+
+const step = (id, title, after = []) => ({ id, title, description: '', after, checklist: [], repeat: 0 });
+const move = {
+  section: '', sectionTitle: 'Переезд', sectionDescription: '',
+  stages: [
+    { id: 'visa', title: 'Виза получена', description: '', after: [], steps: [step('find', 'Найти работодателя'), step('apply', 'Подать на визу', ['find'])] },
+    { id: 'there', title: 'На месте', description: '', after: ['visa'], steps: [step('tickets', 'Купить билеты')] },
+  ],
+};
+
+test('a plan stages its compiled operations, each marked as part of a plan', () => {
+  const { tools, staged } = make();
+
+  const said = tools.plan(move);
+
+  assert.match(said, /^Staged:/);
+  assert.ok(staged.length > 0);
+  assert.ok(staged.every((o) => o.plan === true));
+  assert.ok(staged.some((o) => o.op === 'add' && o.nodeSubtype === 'upstream'));
+  assert.match(said, /Найти работодателя/, 'it says what can start now');
+});
+
+test('a refused plan stages nothing and passes on why', () => {
+  const { tools, staged } = make();
+
+  const said = tools.plan({ ...move, stages: [{ ...move.stages[1], after: ['ghost'] }] });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /no stage called ghost/);
+});
+
+test('only one plan is staged per turn', () => {
+  const { tools, staged } = make();
+
+  tools.plan(move);
+  const before = staged.length;
+  const said = tools.plan(move);
+
+  assert.equal(staged.length, before);
+  assert.match(said, /already staged/);
+});
+
+test('a node of a staged plan can be pointed at later in the same turn', () => {
+  const { tools } = make();
+
+  tools.plan(move);
+
+  assert.match(tools.link({ source: 'n3', target: 'plan:visa:find' }), /^Staged:/);
+});
+
+test('a plan into an existing ryu goes inside it', () => {
+  const { tools, staged } = make();
+
+  tools.plan({ ...move, section: 'n1' });
+
+  assert.ok(staged.filter((o) => o.op === 'add' && !o.alias.split(':')[3]).every((o) => o.parent === 'health'));
+});
