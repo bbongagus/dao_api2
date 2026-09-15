@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildAliasTable } from './aliases.js';
-import { AGENT_SYSTEM_PROMPT, describeWhereUserIs } from './agentPrompt.js';
+import { AGENT_SYSTEM_PROMPT, describeWhereUserIs, KIND_GLOSS } from './agentPrompt.js';
 import { KIND_LIST } from './graphWriteTools.js';
 
 test('the prompt carries the shared graph semantics', () => {
@@ -51,4 +51,12 @@ test('a path naming a node that is gone degrades to the top level', () => {
   const said = describeWhereUserIs(['vanished'], buildAliasTable([]));
 
   assert.match(said, /\p{L}/u);
+});
+
+test('every kind the tools accept has a gloss in the prompt', () => {
+  for (const kind of KIND_LIST) {
+    assert(KIND_GLOSS[kind], `KIND_GLOSS missing for ${kind}`);
+    assert(KIND_GLOSS[kind].length > 0, `KIND_GLOSS empty for ${kind}`);
+    assert.match(AGENT_SYSTEM_PROMPT, new RegExp('`' + kind.replace('-', '\\-') + '`\\s+—'));
+  }
 });
