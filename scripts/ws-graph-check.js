@@ -9,52 +9,74 @@
  *
  * The user id is sent as it is. That is only acceptable against a local
  * server or a rehearsal; production is checked with graph-census.js.
+ *
+ * Exits 1 if no GRAPH_STATE arrives before the socket closes, so `$?` alone
+ * tells you whether the server answered.
  */
 
 import { WebSocket } from 'ws';
 
 import { countNodes } from '../src/ops/census.js';
 
+const usage = 'Usage: node scripts/ws-graph-check.js <wsUrl> <userId> [--send <operation json> | --listen <seconds>]';
+
 const [url, userId, flag, value] = process.argv.slice(2);
-if (!url || !userId || (flag && !['--send', '--listen'].includes(flag))) {
-  console.error('Usage: node scripts/ws-graph-check.js <wsUrl> <userId> [--send <operation json> | --listen <seconds>]');
+if (!url || !userId || (flag && (!['--send', '--listen'].includes(flag) || !value))) {
+  console.error(usage);
   process.exit(1);
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const ws = new WebSocket(url);
 let failed = false;
+let gotGraphState = false;
 
 ws.on('error', (error) => {
+  // .message only: never the error object, never a raw stack trace.
   console.error(`❌ ${error.message}`);
   process.exit(1);
 });
 
 ws.on('message', (raw) => {
-  const message = JSON.parse(raw);
-  if (message.type === 'GRAPH_STATE') {
-    const graph = message.payload;
-    console.log(`GRAPH_STATE ${userId} main nodes=${countNodes(graph.nodes)} edges=${(graph.edges || []).length} version=${graph.version}`);
-  } else if (message.type === 'GRAPH_UPDATED') {
-    const graph = message.payload;
-    console.log(`GRAPH_UPDATED ${userId} main nodes=${countNodes(graph.nodes)} edges=${(graph.edges || []).length} version=${graph.version}`);
-  } else if (message.type === 'OPERATION_APPLIED') {
-    console.log(`OPERATION_APPLIED from=${message.clientId} ${JSON.stringify(message.payload)}`);
-  } else if (message.type === 'OPERATION_ERROR' || message.type === 'ERROR') {
-    console.log(`${message.type} ${message.error || message.message}`);
-    failed = true;
+  try {
+    const message = JSON.parse(raw);
+    if (message.type === 'GRAPH_STATE') {
+      gotGraphState = true;
+      const graph = message.payload;
+      console.log(`GRAPH_STATE ${userId} main nodes=${countNodes(graph.nodes)} edges=${(graph.edges || []).length} version=${graph.version}`);
+    } else if (message.type === 'GRAPH_UPDATED') {
+      const graph = message.payload;
+      console.log(`GRAPH_UPDATED ${userId} main nodes=${countNodes(graph.nodes)} edges=${(graph.edges || []).length} version=${graph.version}`);
+    } else if (message.type === 'OPERATION_APPLIED') {
+      console.log(`OPERATION_APPLIED from=${message.clientId} ${JSON.stringify(message.payload)}`);
+    } else if (message.type === 'OPERATION_ERROR' || message.type === 'ERROR') {
+      console.log(`${message.type} ${message.error || message.message}`);
+      failed = true;
+    }
+  } catch (error) {
+    console.error(`❌ ${error.message}`);
+    process.exit(1);
   }
 });
 
 ws.on('open', async () => {
-  ws.send(JSON.stringify({ type: 'SUBSCRIBE', graphId: 'main', userId }));
-  await wait(500);
-  if (flag === '--send') {
-    ws.send(JSON.stringify({ type: 'OPERATION', payload: JSON.parse(value) }));
-    await wait(1000);
-  } else if (flag === '--listen') {
-    await wait(Number(value) * 1000);
+  try {
+    ws.send(JSON.stringify({ type: 'SUBSCRIBE', graphId: 'main', userId }));
+    await wait(500);
+    if (flag === '--send') {
+      ws.send(JSON.stringify({ type: 'OPERATION', payload: JSON.parse(value) }));
+      await wait(1000);
+    } else if (flag === '--listen') {
+      await wait(Number(value) * 1000);
+    }
+    if (!gotGraphState) {
+      console.error('no GRAPH_STATE received');
+      failed = true;
+    }
+    ws.close();
+    process.exit(failed ? 1 : 0);
+  } catch (error) {
+    console.error(`❌ ${error.message}`);
+    process.exit(1);
   }
-  ws.close();
-  process.exit(failed ? 1 : 0);
 });

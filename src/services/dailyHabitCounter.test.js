@@ -105,13 +105,22 @@ test("every user's graph is counted, each change through the queue and broadcast
   assert.deepEqual(h.broadcasts[0].message.payload, h.applied[0].operation);
 });
 
-test('a change the queue refused is not counted or broadcast', async () => {
-  const h = harness({ 'alice/main': { nodes: [habit('gone', 'bounded', { isDone: true })] } }, { refuse: 'gone' });
+test('a change the queue refused is not counted or broadcast, and does not stop the rest', async () => {
+  // A second habit after the refused one, and a second graph after that:
+  // a stray `break` where the code means `continue` would leave both unapplied.
+  const h = harness({
+    'alice/main': { nodes: [
+      habit('gone', 'bounded', { isDone: true }),
+      habit('stays', 'infinity', { isDone: true }),
+    ] },
+    'bob/main': { nodes: [habit('read', 'infinity', { isDone: true })] },
+  }, { refuse: 'gone' });
 
   const result = await runHabitCounter(h.deps);
 
-  assert.equal(result.nodes, 0);
-  assert.equal(h.broadcasts.length, 0);
+  assert.deepEqual(result, { graphs: 2, nodes: 2, failed: 0, refused: 1 });
+  assert.deepEqual(h.applied.map((a) => a.operation.payload.id), ['gone', 'stays', 'read']);
+  assert.deepEqual(h.broadcasts.map((b) => b.message.payload.payload.id), ['stays', 'read']);
 });
 
 test('a graph that fails does not stop the others', async () => {
