@@ -9,11 +9,11 @@
     "start:legacy": "node src/simple-server.js",
     "dev": "nodemon --exec \"node --env-file-if-exists=.env\" src/server.js",
     "dev:legacy": "nodemon --exec \"node --env-file-if-exists=.env\" src/simple-server.js",
-    "docker:up": "docker-compose -f docker-compose.clean.yml up -d",
-    "docker:down": "docker-compose -f docker-compose.clean.yml down",
-    "docker:logs": "docker-compose -f docker-compose.clean.yml logs -f",
-    "docker:build": "docker-compose -f docker-compose.clean.yml build",
-    "test": "node --test src/**/*.test.js",
+    "docker:up": "docker-compose -f docker-compose.yml up -d",
+    "docker:down": "docker-compose -f docker-compose.yml down",
+    "docker:logs": "docker-compose -f docker-compose.yml logs -f",
+    "docker:build": "docker-compose -f docker-compose.yml build",
+    "test": "node --test \"src/**/*.test.js\"",
     "test:snapshots": "node test-snapshots.js",
     "journal": "node --env-file-if-exists=.env scripts/journal.js"
   },
@@ -41,6 +41,6 @@
     "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   }
 }
