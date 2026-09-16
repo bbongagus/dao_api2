@@ -801,7 +801,11 @@ wss.on('connection', (ws, req) => {
 
             let broadcastCount = 0;
             clients.forEach((client, id) => {
+              // Scope by userId as well as graphId: every user's default graph
+              // is called "main", so matching on graphId alone broadcast one
+              // user's operations to every other connected user.
               if (client.graphId === clientInfo.graphId &&
+                  client.userId === clientInfo.userId &&
                   client.ws.readyState === 1) { // 1 = OPEN state
                 client.ws.send(broadcastMessage);
                 broadcastCount++;
@@ -916,7 +920,10 @@ app.post('/api/graphs/:graphId', async (req, res) => {
       
       let broadcastCount = 0;
       clients.forEach((client) => {
+        // Scope by userId too - this payload is the whole graph, and every
+        // user's default graph is called "main".
         if (client.graphId === graphId &&
+            client.userId === userId &&
             client.ws.readyState === 1) { // 1 = OPEN state
           client.ws.send(broadcastMessage);
           broadcastCount++;
