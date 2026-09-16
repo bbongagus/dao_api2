@@ -23,6 +23,7 @@ if (!url || !userId || (flag && !['--send', '--listen'].includes(flag))) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const ws = new WebSocket(url);
+let failed = false;
 
 ws.on('error', (error) => {
   console.error(`❌ ${error.message}`);
@@ -34,10 +35,14 @@ ws.on('message', (raw) => {
   if (message.type === 'GRAPH_STATE') {
     const graph = message.payload;
     console.log(`GRAPH_STATE ${userId} main nodes=${countNodes(graph.nodes)} edges=${(graph.edges || []).length} version=${graph.version}`);
+  } else if (message.type === 'GRAPH_UPDATED') {
+    const graph = message.payload;
+    console.log(`GRAPH_UPDATED ${userId} main nodes=${countNodes(graph.nodes)} edges=${(graph.edges || []).length} version=${graph.version}`);
   } else if (message.type === 'OPERATION_APPLIED') {
     console.log(`OPERATION_APPLIED from=${message.clientId} ${JSON.stringify(message.payload)}`);
   } else if (message.type === 'OPERATION_ERROR' || message.type === 'ERROR') {
     console.log(`${message.type} ${message.error || message.message}`);
+    failed = true;
   }
 });
 
@@ -51,5 +56,5 @@ ws.on('open', async () => {
     await wait(Number(value) * 1000);
   }
   ws.close();
-  process.exit(0);
+  process.exit(failed ? 1 : 0);
 });
