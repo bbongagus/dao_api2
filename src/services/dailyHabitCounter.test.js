@@ -68,7 +68,7 @@ function harness(graphsByOwner, { failOn = null, refuse = null } = {}) {
       return { userId, graphId };
     })),
     getGraph: async (graphId, userId) => {
-      if (`${userId}/${graphId}` === failOn) throw new Error('unreadable');
+      if (`${userId}/${graphId}` === failOn) return null;
       return structuredClone(graphsByOwner[`${userId}/${graphId}`]);
     },
     applyOperation: async (graphId, operation, userId) => {

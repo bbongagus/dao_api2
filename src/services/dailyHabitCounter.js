@@ -40,6 +40,10 @@ export async function runHabitCounter({ graphs, getGraph, applyOperation, broadc
       // Read outside the queue: a habit unticked in the very instant of
       // midnight can still be counted. The window is milliseconds wide.
       const graph = await getGraph(graphId, userId);
+      // getGraph returns an empty graph for a missing key, so null only ever
+      // means a read error it already caught and logged — count it as failed
+      // rather than as a graph with nothing to do.
+      if (!graph) throw new Error('graph could not be read');
       for (const { id, updates } of habitUpdates(graph)) {
         const operation = { type: 'UPDATE_NODE', payload: { id, updates } };
         if (!(await applyOperation(graphId, operation, userId))) continue;
