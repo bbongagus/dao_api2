@@ -20,7 +20,9 @@ import redis from './redis.js';
 // Import services
 import SimplifiedAnalytics from './analytics-v2.js';
 import progressSnapshots from './progress-snapshots.js';
-import dailyHabitCounter from './services/dailyHabitCounter.js';
+import { runHabitCounter } from './services/dailyHabitCounter.js';
+import { scanGraphKeys } from './services/graphKeys.js';
+import { broadcastToGraph } from './handlers/broadcast.js';
 import { DEFAULT_USER_ID } from './services/graphService.js';
 import { getNodeIndex, clearNodeIndex } from './services/nodeIndex.js';
 import { createJournal } from './services/journal.js';
@@ -225,15 +227,21 @@ setTimeout(async () => {
 
 logger.success('Progress Snapshots Service initialized');
 
-// Initialize daily habit counter job at 00:00 every day
+// Count yesterday's ticked habits for every user at midnight. HABIT_COUNTER_CRON
+// lets a rehearsal run it every few seconds instead of waiting for midnight.
 const habitCounterJob = new CronJob(
-  '0 0 * * *',
+  process.env.HABIT_COUNTER_CRON || '0 0 * * *',
   async () => {
     logger.info('🌙 Running daily habit counter job...');
     try {
-      const result = await dailyHabitCounter.processAllGraphs(DEFAULT_USER_ID);
+      const result = await runHabitCounter({
+        graphs: scanGraphKeys(redis),
+        getGraph,
+        applyOperation,
+        broadcast: (target, message) => broadcastToGraph(clients, target, message),
+      });
       logger.success(
-        `🌙 Daily habit counter completed: ${result.incrementedCount}/${result.processedCount} nodes incremented`
+        `🌙 Daily habit counter completed: ${result.nodes} habits in ${result.graphs} graphs, ${result.failed} failed`
       );
     } catch (error) {
       logger.error('🌙 Daily habit counter failed:', error);
