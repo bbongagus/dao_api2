@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger.js';
 import { DEFAULT_USER_ID, shouldResetProgress, resetAllProgress } from '../services/graphService.js';
+import { broadcastToGraph } from './broadcast.js';
 
 /**
  * Setup WebSocket handler
@@ -152,27 +153,17 @@ async function handleOperation(data, clientInfo, clientId, ws, clients, applyOpe
   const result = await applyOperation(clientInfo.graphId, data.payload, clientInfo.userId);
   
   if (result) {
-    // Broadcast to all clients subscribed to this graph
-    const broadcastMessage = JSON.stringify({
-      type: 'OPERATION_APPLIED',
-      payload: data.payload,
-      userId: clientInfo.userId,
-      clientId: clientId,
-      timestamp: Date.now()
-    });
-
-    let broadcastCount = 0;
-    clients.forEach((client, id) => {
-      // Scope by userId as well as graphId: every user's default graph is
-      // called "main", so matching on graphId alone broadcast one user's
-      // operations to every other connected user.
-      if (client.graphId === clientInfo.graphId &&
-          client.userId === clientInfo.userId &&
-          client.ws.readyState === 1) {
-        client.ws.send(broadcastMessage);
-        broadcastCount++;
+    const broadcastCount = broadcastToGraph(
+      clients,
+      { userId: clientInfo.userId, graphId: clientInfo.graphId },
+      {
+        type: 'OPERATION_APPLIED',
+        payload: data.payload,
+        userId: clientInfo.userId,
+        clientId: clientId,
+        timestamp: Date.now()
       }
-    });
+    );
     
     // Only log non-position operations
     if (!isHighFrequency) {

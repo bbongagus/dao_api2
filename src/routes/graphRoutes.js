@@ -7,6 +7,7 @@
 import express from 'express';
 import { DEFAULT_USER_ID } from '../services/graphService.js';
 import dailyCompletions from '../services/dailyCompletions.js';
+import { broadcastToGraph } from '../handlers/broadcast.js';
 
 const router = express.Router();
 
@@ -66,24 +67,11 @@ export function setupGraphRoutes(deps) {
       if (saved) {
         console.log(`✅ REST API: Graph ${graphId} saved successfully`);
         
-        // Broadcast the update to all WebSocket clients
-        const broadcastMessage = JSON.stringify({
+        const broadcastCount = broadcastToGraph(clients, { userId, graphId }, {
           type: 'GRAPH_UPDATED',
           payload: updatedGraph,
           source: 'rest_api',
           timestamp: Date.now()
-        });
-        
-        let broadcastCount = 0;
-        clients.forEach((client) => {
-          // Scope by userId too - this payload is the whole graph, and every
-          // user's default graph is called "main".
-          if (client.graphId === graphId &&
-              client.userId === userId &&
-              client.ws.readyState === 1) { // 1 = OPEN state
-            client.ws.send(broadcastMessage);
-            broadcastCount++;
-          }
         });
         
         if (broadcastCount > 0) {
