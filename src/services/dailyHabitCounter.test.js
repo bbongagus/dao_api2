@@ -90,7 +90,7 @@ test("every user's graph is counted, each change through the queue and broadcast
 
   const result = await runHabitCounter(h.deps);
 
-  assert.deepEqual(result, { graphs: 3, nodes: 2, failed: 0 });
+  assert.deepEqual(result, { graphs: 3, nodes: 2, failed: 0, refused: 0 });
   assert.deepEqual(h.applied, [
     { userId: 'alice', graphId: 'main', operation: { type: 'UPDATE_NODE', payload: { id: 'run', updates: { currentCompletions: 2, isDone: false } } } },
     { userId: 'bob', graphId: 'main', operation: { type: 'UPDATE_NODE', payload: { id: 'read', updates: { currentCompletions: 1, isDone: false } } } },
@@ -122,7 +122,7 @@ test('a graph that fails does not stop the others', async () => {
 
   const result = await runHabitCounter(h.deps);
 
-  assert.deepEqual(result, { graphs: 2, nodes: 1, failed: 1 });
+  assert.deepEqual(result, { graphs: 2, nodes: 1, failed: 1, refused: 0 });
   assert.equal(h.applied.length, 1);
   assert.equal(h.applied[0].userId, 'bob');
   assert.match(h.errors[0], /alice:main/);

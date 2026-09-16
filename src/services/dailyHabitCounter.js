@@ -32,7 +32,7 @@ export function habitUpdates(graph) {
 }
 
 export async function runHabitCounter({ graphs, getGraph, applyOperation, broadcast, log = logger }) {
-  const result = { graphs: 0, nodes: 0, failed: 0 };
+  const result = { graphs: 0, nodes: 0, failed: 0, refused: 0 };
 
   for await (const { userId, graphId } of graphs) {
     result.graphs++;
@@ -46,7 +46,10 @@ export async function runHabitCounter({ graphs, getGraph, applyOperation, broadc
       if (!graph) throw new Error('graph could not be read');
       for (const { id, updates } of habitUpdates(graph)) {
         const operation = { type: 'UPDATE_NODE', payload: { id, updates } };
-        if (!(await applyOperation(graphId, operation, userId))) continue;
+        if (!(await applyOperation(graphId, operation, userId))) {
+          result.refused++;
+          continue;
+        }
 
         result.nodes++;
         broadcast({ userId, graphId }, {

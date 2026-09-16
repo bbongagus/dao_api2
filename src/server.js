@@ -227,30 +227,38 @@ setTimeout(async () => {
 
 logger.success('Progress Snapshots Service initialized');
 
+// The counter needs no index; reading through getGraph would repoint the
+// shared NodeIndex at a copy the queue is not working on.
+async function readGraph(graphId, userId) {
+  const raw = await redis.get(`user:${userId}:graph:${graphId}`);
+  return raw === null ? { nodes: [], edges: [] } : JSON.parse(raw);
+}
+
 // Count yesterday's ticked habits for every user at midnight. HABIT_COUNTER_CRON
 // lets a rehearsal run it every few seconds instead of waiting for midnight.
-const habitCounterJob = new CronJob(
-  process.env.HABIT_COUNTER_CRON || '0 0 * * *',
-  async () => {
+const habitCounterJob = CronJob.from({
+  cronTime: process.env.HABIT_COUNTER_CRON || '0 0 * * *',
+  // A slow run must not overlap the next and count a day twice.
+  waitForCompletion: true,
+  onTick: async () => {
     logger.info('🌙 Running daily habit counter job...');
     try {
       const result = await runHabitCounter({
         graphs: scanGraphKeys(redis),
-        getGraph,
+        getGraph: readGraph,
         applyOperation,
         broadcast: (target, message) => broadcastToGraph(clients, target, message),
       });
       logger.success(
-        `🌙 Daily habit counter completed: ${result.nodes} habits in ${result.graphs} graphs, ${result.failed} failed`
+        `🌙 Daily habit counter completed: ${result.nodes} habits in ${result.graphs} graphs, ${result.failed} graphs failed, ${result.refused} updates refused`
       );
     } catch (error) {
       logger.error('🌙 Daily habit counter failed:', error);
     }
   },
-  null,
-  true,
-  'Europe/Belgrade'
-);
+  start: true,
+  timeZone: 'Europe/Belgrade',
+});
 
 // Start server
 const PORT = process.env.PORT || 3001;
