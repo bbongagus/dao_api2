@@ -12,9 +12,19 @@ import Redis from 'ioredis';
 import { opsRedisUrl } from '../src/ops/redisTarget.js';
 import { takeCensus } from '../src/ops/census.js';
 
-const redis = new Redis(opsRedisUrl(process.env), { family: 0, maxRetriesPerRequest: 2 });
+let host; // set once the client exists, so a catch below can name the target
 try {
-  process.stdout.write(await takeCensus(redis));
-} finally {
-  redis.disconnect();
+  const redis = new Redis(opsRedisUrl(process.env), { family: 0, maxRetriesPerRequest: 2 });
+  host = `${redis.options.host}:${redis.options.port}`;
+  console.error(`reading ${host}`);
+  try {
+    process.stdout.write(await takeCensus(redis));
+  } finally {
+    redis.disconnect();
+  }
+} catch (error) {
+  // Never the error object: ioredis attaches the failing command, which for
+  // a GET would put a raw `user:<id>:graph:<id>` key on the operator's screen.
+  console.error(host ? `${host}: ${error.message}` : error.message);
+  process.exit(1);
 }
