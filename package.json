@@ -6,9 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "start:legacy": "node src/simple-server.js",
     "dev": "nodemon --exec \"node --env-file-if-exists=.env\" src/server.js",
-    "dev:legacy": "nodemon --exec \"node --env-file-if-exists=.env\" src/simple-server.js",
     "docker:up": "docker-compose -f docker-compose.yml up -d",
     "docker:down": "docker-compose -f docker-compose.yml down",
     "docker:logs": "docker-compose -f docker-compose.yml logs -f",
