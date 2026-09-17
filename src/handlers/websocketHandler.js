@@ -5,10 +5,14 @@
 
 import { logger } from '../utils/logger.js';
 import { shouldResetProgress, resetAllProgress } from '../services/graphService.js';
+import { VerifierUnavailableError } from '../auth/verifyToken.js';
 import { broadcastToGraph } from './broadcast.js';
 
 /** Close code for a SUBSCRIBE whose token proves no user: the client stops retrying and signs in again. */
 export const UNAUTHORIZED = 4401;
+
+/** Close code for a SUBSCRIBE whose token cannot be checked right now: the client reconnects later, as after any drop. */
+export const TRY_AGAIN_LATER = 1013;
 
 /**
  * Setup WebSocket handler
@@ -117,6 +121,16 @@ async function handleSubscribe(data, clientInfo, clientId, ws, { getGraph, saveG
     // Whatever this socket was subscribed to before, it is not any more.
     clientInfo.userId = null;
     clientInfo.graphId = null;
+
+    // Not a refusal: the client reconnects in a while instead of sending the
+    // person to sign in for an outage that is not theirs.
+    if (error instanceof VerifierUnavailableError) {
+      logger.error(`Client ${clientId} SUBSCRIBE could not be checked: ${error.message}`);
+      ws.send(JSON.stringify({ type: 'AUTH_UNAVAILABLE' }));
+      ws.close(TRY_AGAIN_LATER, 'try again later');
+      return;
+    }
+
     logger.warn(`Client ${clientId} SUBSCRIBE refused: ${error.message}`);
     ws.send(JSON.stringify({ type: 'AUTH_ERROR' }));
     ws.close(UNAUTHORIZED, 'unauthorized');

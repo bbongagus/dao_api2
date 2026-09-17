@@ -13,6 +13,18 @@ export class AuthError extends Error {
   }
 }
 
+/**
+ * The token could not be checked at all: Auth0's key set timed out, could not
+ * be fetched, or came back malformed. The caller answers "try again later",
+ * not "sign in again".
+ */
+export class VerifierUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'VerifierUnavailableError';
+  }
+}
+
 export function createTokenVerifier({ issuer, audience, jwksUrl, publicJwk }) {
   // Auth0's key set is fetched on first use, cached, and fetched again when a
   // token names a key it has not seen — which is how a key rotation lands.
@@ -31,6 +43,10 @@ export function createTokenVerifier({ issuer, audience, jwksUrl, publicJwk }) {
         requiredClaims: ['exp', 'sub'],
       }));
     } catch (error) {
+      // A key set Auth0 cannot serve right now says nothing about the token.
+      // Refused, the person would be sent to sign in, signed straight back in,
+      // and refused again.
+      if (keySetUnavailable(error)) throw new VerifierUnavailableError(error.code || error.message);
       throw new AuthError(error.code || error.message);
     }
 
@@ -41,4 +57,14 @@ export function createTokenVerifier({ issuer, audience, jwksUrl, publicJwk }) {
 
     return { userId: payload.sub };
   };
+}
+
+// Every verdict jose reaches about a token carries one of these codes. A key set
+// that could not be reached at all — a refused connection, a DNS failure — fails
+// with none.
+const JOSE_CODE = /^ERR_(JOSE|JWT|JWS|JWK|JWKS|JWE)_/;
+
+function keySetUnavailable(error) {
+  if (error.code === 'ERR_JWKS_TIMEOUT' || error.code === 'ERR_JWKS_INVALID') return true;
+  return !JOSE_CODE.test(error.code ?? '');
 }

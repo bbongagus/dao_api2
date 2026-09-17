@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { setupWebSocketHandler, UNAUTHORIZED } from './websocketHandler.js';
+import { setupWebSocketHandler, UNAUTHORIZED, TRY_AGAIN_LATER } from './websocketHandler.js';
+import { VerifierUnavailableError } from '../auth/verifyToken.js';
 
 /** A socket that remembers what the server sent it and how it was closed. */
 function fakeSocket() {
@@ -22,7 +23,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * A server with one connected client. A token "token-for:<user>" proves <user>;
  * "slow-token-for:<user>" does too, 20 ms later, as a key set being fetched
- * would; anything else is refused.
+ * would; "while-the-key-set-is-down" cannot be checked at all; anything else
+ * is refused.
  */
 function connect() {
   const wss = new EventEmitter();
@@ -42,6 +44,7 @@ function connect() {
         return { userId: token.slice('slow-token-for:'.length) };
       }
       if (typeof token === 'string' && token.startsWith('token-for:')) return { userId: token.slice('token-for:'.length) };
+      if (token === 'while-the-key-set-is-down') throw new VerifierUnavailableError('ERR_JWKS_TIMEOUT');
       throw new Error('refused');
     },
   });
@@ -155,4 +158,17 @@ test('two SUBSCRIBEs take effect in the order sent', async () => {
 
   assert.equal(client().userId, 'bob');
   assert.equal(ws.sent.filter((m) => m.type === 'GRAPH_STATE').at(-1).payload.userId, 'bob');
+});
+
+test('a token that cannot be checked right now is no refusal: the client is told to come back', async () => {
+  const { ws, reads, send, client } = connect();
+
+  await send({ type: 'SUBSCRIBE', graphId: 'main', token: 'while-the-key-set-is-down' });
+
+  assert.ok(types(ws).includes('AUTH_UNAVAILABLE'));
+  assert.ok(!types(ws).includes('AUTH_ERROR'));
+  assert.equal(ws.closed?.code, 1013);
+  assert.equal(TRY_AGAIN_LATER, 1013);
+  assert.equal(reads.length, 0);
+  assert.equal(client().userId, null);
 });
