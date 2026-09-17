@@ -131,3 +131,37 @@ test('a request with no messages is still a 400', async (t) => {
 
   assert.equal(response.status, 400);
 });
+
+test('a person who closes the tab stops the upstream calls they would still be billed for', async (t) => {
+  let seenSignal = null;
+  let abortedDuringTurn = false;
+
+  const { url } = serve(t, {
+    runAgent: async ({ signal }) => {
+      seenSignal = signal;
+      await new Promise((resolve) => {
+        if (signal.aborted) return resolve();
+        signal.addEventListener('abort', resolve, { once: true });
+      });
+      abortedDuringTurn = true;
+      return { type: 'cancelled', usage: { calls: 1, dollars: 0.01 } };
+    },
+  });
+
+  const leaving = new AbortController();
+  const request = fetch(`${url}/api/ai/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'привет' }] }),
+    signal: leaving.signal,
+  }).catch(() => {});
+
+  // Give the handler a moment to reach the agent, then walk away.
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  leaving.abort();
+  await request;
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  assert.ok(seenSignal, 'the agent must be given a signal at all');
+  assert.equal(abortedDuringTurn, true, 'closing the response must abort the turn');
+});

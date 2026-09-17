@@ -476,3 +476,53 @@ test('nothing in the cached prefix changes between iterations of one turn', asyn
 
   assert.equal(seen[0], seen[1], 'system, tool order and model must be byte-identical or the cache never reads');
 });
+
+// --- giving up when the person leaves ---
+
+test('the caller\'s abort signal is handed to the runner', async () => {
+  let options = null;
+  const controller = new AbortController();
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(_params, opts) {
+          options = opts;
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+
+  await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit, signal: controller.signal,
+  });
+
+  assert.equal(options?.signal, controller.signal);
+});
+
+test('a turn the person walked away from reads as cancelled, not as an API failure', async () => {
+  const client = {
+    beta: {
+      messages: {
+        toolRunner: () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { content: [], stop_reason: 'tool_use', usage: { input_tokens: 500, output_tokens: 10 } };
+            throw new Anthropic.APIUserAbortError();
+          },
+          async done() { throw new Anthropic.APIUserAbortError(); },
+        }),
+      },
+    },
+  };
+
+  const turn = await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+
+  // APIUserAbortError is itself an APIError, so without its own branch this
+  // was journalled as "Claude's API returned an error" — which it was not.
+  assert.equal(turn.type, 'cancelled');
+  assert.equal(turn.usage.calls, 1, 'what it spent before being stopped is still charged');
+});

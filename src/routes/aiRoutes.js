@@ -7,6 +7,7 @@
 
 import express from 'express';
 import { clipText } from '../services/journal.js';
+import { parseChatRequest } from '../ai/chatRequest.js';
 
 // An inspect of a large branch runs long; the journal keeps enough to see
 // what the agent was looking at.
@@ -54,12 +55,15 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
    * shows for confirmation.
    */
   router.post('/chat', async (req, res) => {
-    const { messages, currentPath, graphId } = req.body || {};
     const userId = req.userId;
 
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ success: false, error: 'messages array is required' });
+    // Everything in the body is billed as input tokens and goes to the model
+    // as written, so it is shaped and bounded here first — see chatRequest.js.
+    const parsed = parseChatRequest(req.body);
+    if (!parsed.ok) {
+      return res.status(400).json({ success: false, error: parsed.error });
     }
+    const { messages, currentPath, graphId } = parsed.value;
 
     if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
       return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY is not set on the server' });
@@ -98,8 +102,14 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
 
     // Watch the response, not the request: `req` emits 'close' as soon as its
     // body has been read, which is immediately.
+    //
+    // The flag used only to suppress further writes, so a person closing the
+    // tab left the agent running — up to sixteen upstream requests, every one
+    // of them billed, for an answer nobody would ever see. The controller
+    // stops them.
+    const leaving = new AbortController();
     let aborted = false;
-    res.on('close', () => { aborted = true; });
+    res.on('close', () => { aborted = true; leaving.abort(); });
 
     const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
     const startedAt = Date.now();
@@ -107,13 +117,14 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
     let result = null;
 
     try {
-      const graph = await getGraph(graphId || 'main', userId);
+      const graph = await getGraph(graphId, userId);
 
       result = await runAgent({
         model,
+        signal: leaving.signal,
         nodes: graph?.nodes || [],
         edges: graph?.edges || [],
-        currentPath: Array.isArray(currentPath) ? currentPath : [],
+        currentPath,
         messages,
         emit: (event) => { if (!aborted) emit(event); },
         onToolCall: (call) => toolCalls.push(call),
@@ -143,7 +154,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
       // The turn as it happened, so "what did it just do?" has an answer
       // after the chat window is gone.
       const lastRequest = [...messages].reverse().find((m) => m.role === 'user');
-      journal?.record(userId, graphId || 'main', {
+      journal?.record(userId, graphId, {
         kind: 'agent_turn',
         request: lastRequest?.content ?? null,
         model,

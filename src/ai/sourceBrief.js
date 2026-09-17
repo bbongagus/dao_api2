@@ -57,7 +57,7 @@ export function withSourceBrief(messages, brief) {
  *        per API call, including each continuation of a paused turn — this loop
  *        can make four requests, and every one of them is billed.
  */
-export async function buildSourceBrief(client, model, messages, { maxTurns = 4, onUsage = () => {} } = {}) {
+export async function buildSourceBrief(client, model, messages, { maxTurns = 4, onUsage = () => {}, signal } = {}) {
   const urls = messages.flatMap((m) =>
     m.role === 'user' && typeof m.content === 'string' ? extractUrls(m.content) : []
   );
@@ -82,7 +82,7 @@ export async function buildSourceBrief(client, model, messages, { maxTurns = 4, 
         system: BRIEF_SYSTEM_PROMPT,
         messages: turns,
         tools: [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 }],
-      });
+      }, { signal });
 
       onUsage(model, response.usage);
 

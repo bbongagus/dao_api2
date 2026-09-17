@@ -78,7 +78,7 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 }
 
 export async function runGraphAgent({
-  client, model, nodes, edges = [], currentPath, messages, emit, onToolCall = () => {},
+  client, model, nodes, edges = [], currentPath, messages, emit, onToolCall = () => {}, signal,
 }) {
   // Every upstream call this turn makes is added here — the link reader's up
   // to four and the loop's up to twelve — so the quota is charged for all of
@@ -99,7 +99,7 @@ export async function runGraphAgent({
   let brief = null;
   if (messages.some((m) => m.role === 'user' && /https?:\/\//.test(m.content || ''))) {
     emit({ type: 'status', text: 'reading the link' });
-    brief = await buildSourceBrief(client, model, messages, { onUsage: meter.add });
+    brief = await buildSourceBrief(client, model, messages, { onUsage: meter.add, signal });
     if (!brief) emit({ type: 'status', text: 'could not read the link — going on without it' });
   }
 
@@ -303,7 +303,7 @@ export async function runGraphAgent({
       ],
       messages: [...opening, ...conversation],
       tools,
-    });
+    }, { signal });
 
     for await (const message of runner) meter.add(model, message.usage);
     final = await runner.done();
@@ -313,6 +313,12 @@ export async function runGraphAgent({
     // be checked before the generic APIError branch or it would never be
     // reached. Never string-match error.message — the SDK's own types are
     // the contract.
+    // Before the APIError branch: an abort is itself an APIError, so without
+    // its own case a person closing the tab was journalled as a failure of
+    // Claude's.
+    if (error instanceof Anthropic.APIUserAbortError || error?.name === 'AbortError') {
+      return withUsage({ type: 'cancelled', message: 'Stopped.' });
+    }
     if (error instanceof Anthropic.RateLimitError) {
       return withUsage({ type: 'error', message: 'Claude is rate-limited right now. Try again in a moment.' });
     }
