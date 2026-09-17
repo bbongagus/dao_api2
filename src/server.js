@@ -27,6 +27,7 @@ import { getNodeIndex } from './services/nodeIndex.js';
 import { createJournal } from './services/journal.js';
 import { createSpendLedger } from './ai/spend.js';
 import { healthReport } from './health.js';
+import { corsOptions } from './corsPolicy.js';
 
 // Import handlers
 import { setupWebSocketHandler } from './handlers/websocketHandler.js';
@@ -47,7 +48,9 @@ const verifyToken = createTokenVerifier(authConfig);
 // Initialize Express app
 const app = express();
 // cors() answers preflight requests itself, so they never reach requireUser.
-app.use(cors());
+// Narrowed to where this app is served from — see corsPolicy.js. CORS_ORIGINS
+// overrides, comma separated.
+app.use(cors(corsOptions()));
 // Ahead of the body parser: a request that proves no user is not worth parsing.
 app.use('/api', createRequireUser(verifyToken));
 app.use(express.json());
@@ -56,7 +59,10 @@ app.use(express.json());
 const server = http.createServer(app);
 
 // Initialize WebSocket server
-const wss = new WebSocketServer({ server });
+// A megabyte is far above any operation this protocol sends — the graph itself
+// never comes in over the socket — and far below what an unbounded frame could
+// make the server allocate.
+const wss = new WebSocketServer({ server, maxPayload: 1024 * 1024 });
 
 // Track connected clients
 const clients = new Map();
