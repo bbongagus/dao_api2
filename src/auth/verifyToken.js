@@ -64,7 +64,14 @@ export function createTokenVerifier({ issuer, audience, jwksUrl, publicJwk }) {
 // with none.
 const JOSE_CODE = /^ERR_(JOSE|JWT|JWS|JWK|JWKS|JWE)_/;
 
+// The codes that say the key set, not the token, is the problem.
+// `ERR_JOSE_GENERIC` is jose's unspecified error, and jose raises it in exactly
+// two places, both while fetching the key set: a response that is not 200, and
+// one that does not parse as JSON. Auth0 answering 502, or a proxy serving a
+// maintenance page, arrives here.
+const KEY_SET_CODE = new Set(['ERR_JWKS_TIMEOUT', 'ERR_JWKS_INVALID', 'ERR_JOSE_GENERIC']);
+
 function keySetUnavailable(error) {
-  if (error.code === 'ERR_JWKS_TIMEOUT' || error.code === 'ERR_JWKS_INVALID') return true;
+  if (KEY_SET_CODE.has(error.code)) return true;
   return !JOSE_CODE.test(error.code ?? '');
 }

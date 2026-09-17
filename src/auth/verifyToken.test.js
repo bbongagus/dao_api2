@@ -15,6 +15,9 @@ let verifyToken;
 let keySet;    // a local server standing in for Auth0's key set
 let jwksUrl;   // where keySet serves the trusted public key, as kid "k1"
 let closedUrl; // a key set address nothing answers on
+let broken;    // a key set that answers, but with nothing usable
+let failingUrl; // where broken answers 500
+let garbageUrl; // where broken answers 200 with something that is not JSON
 
 /** Resolves once a node:http server is listening, or has closed. */
 const listening = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -37,9 +40,22 @@ before(async () => {
   await listening(gone);
   closedUrl = `http://127.0.0.1:${gone.address().port}/jwks.json`;
   await closed(gone);
+
+  // Auth0 in trouble, or a proxy in front of it, answers the request — with an
+  // error page or a maintenance page rather than a key set.
+  broken = createServer((req, res) => {
+    if (req.url === '/500.json') return res.writeHead(500, { 'Content-Type': 'text/plain' }).end('upstream error');
+    res.writeHead(200, { 'Content-Type': 'text/html' }).end('<html>maintenance</html>');
+  });
+  await listening(broken);
+  failingUrl = `http://127.0.0.1:${broken.address().port}/500.json`;
+  garbageUrl = `http://127.0.0.1:${broken.address().port}/html.json`;
 });
 
-after(() => closed(keySet));
+after(async () => {
+  await closed(keySet);
+  await closed(broken);
+});
 
 /** A token as the trusted issuer would sign it. Each override changes one thing; null leaves a claim out. */
 function sign(overrides = {}) {
@@ -128,6 +144,18 @@ test('a token naming a key the remote key set does not hold is refused', async (
 
 test('a key set that cannot be fetched refuses nothing: the verifier is unavailable', async () => {
   const verify = createTokenVerifier({ issuer: ISSUER, audience: AUDIENCE, jwksUrl: closedUrl });
+
+  await assert.rejects(verify(await sign({ kid: 'k1' })), VerifierUnavailableError);
+});
+
+test('a key set answering 500 refuses nothing: the verifier is unavailable', async () => {
+  const verify = createTokenVerifier({ issuer: ISSUER, audience: AUDIENCE, jwksUrl: failingUrl });
+
+  await assert.rejects(verify(await sign({ kid: 'k1' })), VerifierUnavailableError);
+});
+
+test('a key set answering something that is not JSON refuses nothing: the verifier is unavailable', async () => {
+  const verify = createTokenVerifier({ issuer: ISSUER, audience: AUDIENCE, jwksUrl: garbageUrl });
 
   await assert.rejects(verify(await sign({ kid: 'k1' })), VerifierUnavailableError);
 });
