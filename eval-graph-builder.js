@@ -18,6 +18,7 @@ import fs from 'fs';
 import Redis from 'ioredis';
 
 import { describeProposalShape } from './src/ai/graphShape.js';
+import { devTokenFromEnv } from './src/auth/devToken.js';
 
 const BASE = process.argv[2] || 'http://localhost:3011';
 const LABEL = process.argv[3] || 'run';
@@ -51,7 +52,7 @@ const GOALS = [
 async function turn(userId, text) {
   const response = await fetch(`${BASE}/api/ai/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await devTokenFromEnv(userId)}` },
     body: JSON.stringify({ messages: [{ role: 'user', content: text }], currentPath: [] }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);

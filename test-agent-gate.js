@@ -20,6 +20,7 @@
 import Redis from 'ioredis';
 
 import { describeProposalShape } from './src/ai/graphShape.js';
+import { devTokenFromEnv } from './src/auth/devToken.js';
 
 const BASE = process.argv[2] || 'http://localhost:3011';
 const redis = new Redis({ host: 'localhost', port: 6379 });
@@ -46,7 +47,7 @@ const seed = async (userId, nodes) => {
 async function turn(userId, text, currentPath = []) {
   const response = await fetch(`${BASE}/api/ai/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await devTokenFromEnv(userId)}` },
     body: JSON.stringify({ messages: [{ role: 'user', content: text }], currentPath }),
   });
 
