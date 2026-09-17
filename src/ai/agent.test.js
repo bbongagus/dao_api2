@@ -4,14 +4,32 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import { summariseStaged, shapeTurn, runGraphAgent } from './agent.js';
 
+/**
+ * A runner shaped like the SDK's: `toolRunner()` hands one back synchronously,
+ * it yields each message of the loop, and `done()` resolves with the last.
+ */
+function runnerOf(messages, error) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      if (error) throw error;
+      for (const message of messages) yield message;
+    },
+    async done() {
+      if (error) throw error;
+      return messages[messages.length - 1];
+    },
+  };
+}
+
 /** A stub client whose toolRunner returns a canned final message, or throws. */
 function stubClient(resultOrError) {
   return {
     beta: {
       messages: {
-        async toolRunner() {
-          if (resultOrError instanceof Error) throw resultOrError;
-          return resultOrError;
+        toolRunner() {
+          return resultOrError instanceof Error
+            ? runnerOf([], resultOrError)
+            : runnerOf([resultOrError]);
         },
       },
     },
@@ -267,11 +285,17 @@ function scriptedClient(calls, results = []) {
   return {
     beta: {
       messages: {
-        async toolRunner({ tools }) {
-          for (const [name, input] of calls) {
-            results.push(await tools.find((t) => t.name === name).run(input));
-          }
-          return { content: [{ type: 'text', text: 'Готово.' }], stop_reason: 'end_turn' };
+        toolRunner({ tools }) {
+          const ran = (async () => {
+            for (const [name, input] of calls) {
+              results.push(await tools.find((t) => t.name === name).run(input));
+            }
+            return { content: [{ type: 'text', text: 'Готово.' }], stop_reason: 'end_turn' };
+          })();
+          return {
+            async *[Symbol.asyncIterator]() { yield await ran; },
+            async done() { return ran; },
+          };
         },
       },
     },
@@ -348,4 +372,57 @@ test('the agent can lay out a plan through plan_path', async () => {
   assert.equal(result.type, 'changes');
   assert.ok(result.operations.some((o) => o.nodeSubtype === 'upstream'));
   assert.ok(statuses.includes('planning "Переезд"'));
+});
+
+
+// --- what the turn cost ---
+
+test('a turn reports what it spent, summed over every iteration of the loop', async () => {
+  const client = {
+    beta: {
+      messages: {
+        toolRunner: () => runnerOf([
+          { content: [], stop_reason: 'tool_use', usage: { input_tokens: 1000, output_tokens: 100 } },
+          { content: [{ type: 'text', text: 'Готово.' }], stop_reason: 'end_turn',
+            usage: { input_tokens: 2000, output_tokens: 50, cache_read_input_tokens: 500 } },
+        ]),
+      },
+    },
+  };
+
+  const turn = await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+
+  assert.equal(turn.usage.calls, 2, 'both iterations are billed');
+  assert.equal(turn.usage.input, 3000);
+  assert.equal(turn.usage.output, 150);
+  assert.equal(turn.usage.cacheRead, 500);
+  assert.ok(turn.usage.dollars > 0, 'a turn that ran is never free');
+});
+
+test('a turn that failed still reports what it spent before failing', async () => {
+  const client = {
+    beta: {
+      messages: {
+        toolRunner: () => ({
+          async *[Symbol.asyncIterator]() {
+            yield { content: [], stop_reason: 'tool_use', usage: { input_tokens: 1000, output_tokens: 10 } };
+            throw new Anthropic.RateLimitError(429, {}, 'rate limited', {});
+          },
+          async done() { throw new Anthropic.RateLimitError(429, {}, 'rate limited', {}); },
+        }),
+      },
+    },
+  };
+
+  const turn = await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+
+  assert.equal(turn.type, 'error');
+  assert.equal(turn.usage.calls, 1, 'the iteration that ran before the failure is billed');
+  assert.ok(turn.usage.dollars > 0);
 });

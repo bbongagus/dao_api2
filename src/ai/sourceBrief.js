@@ -50,7 +50,14 @@ export function withSourceBrief(messages, brief) {
  * to read. Never throws - a failed fetch simply means planning proceeds on
  * the person's own words.
  */
-export async function buildSourceBrief(client, model, messages, { maxTurns = 4 } = {}) {
+/**
+ * @param {object} [options]
+ * @param {number} [options.maxTurns]
+ * @param {(model: string, usage: object) => void} [options.onUsage] called once
+ *        per API call, including each continuation of a paused turn — this loop
+ *        can make four requests, and every one of them is billed.
+ */
+export async function buildSourceBrief(client, model, messages, { maxTurns = 4, onUsage = () => {} } = {}) {
   const urls = messages.flatMap((m) =>
     m.role === 'user' && typeof m.content === 'string' ? extractUrls(m.content) : []
   );
@@ -73,6 +80,8 @@ export async function buildSourceBrief(client, model, messages, { maxTurns = 4 }
         messages: turns,
         tools: [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 }],
       });
+
+      onUsage(model, response.usage);
 
       // A server tool can hand the turn back mid-flight; continue it.
       if (response.stop_reason === 'pause_turn') {

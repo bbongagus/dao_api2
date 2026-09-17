@@ -18,6 +18,7 @@ import { createReadTools } from './graphReadTools.js';
 import { createWriteTools, KIND_LIST } from './graphWriteTools.js';
 import { AGENT_SYSTEM_PROMPT, describeWhereUserIs } from './agentPrompt.js';
 import { buildSourceBrief } from './sourceBrief.js';
+import { createUsageMeter } from './usageMeter.js';
 
 const MAX_TOKENS = 16000;
 const MAX_ITERATIONS = 12;
@@ -79,6 +80,12 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 export async function runGraphAgent({
   client, model, nodes, edges = [], currentPath, messages, emit, onToolCall = () => {},
 }) {
+  // Every upstream call this turn makes is added here — the link reader's up
+  // to four and the loop's up to twelve — so the quota is charged for all of
+  // them, including the ones a failed turn already paid for.
+  const meter = createUsageMeter();
+  const withUsage = (turn) => ({ ...turn, usage: meter.total() });
+
   const aliases = buildAliasTable(nodes);
   const read = createReadTools(nodes, aliases, edges);
   const { tools: write, staged } = createWriteTools(nodes, aliases, edges);
@@ -92,7 +99,7 @@ export async function runGraphAgent({
   let brief = null;
   if (messages.some((m) => m.role === 'user' && /https?:\/\//.test(m.content || ''))) {
     emit({ type: 'status', text: 'reading the link' });
-    brief = await buildSourceBrief(client, model, messages);
+    brief = await buildSourceBrief(client, model, messages, { onUsage: meter.add });
     if (!brief) emit({ type: 'status', text: 'could not read the link — going on without it' });
   }
 
@@ -278,7 +285,10 @@ export async function runGraphAgent({
 
   let final;
   try {
-    final = await client.beta.messages.toolRunner({
+    // Iterated rather than awaited: `await runner` hands back only the final
+    // message, and every iteration before it was billed too. Each one carries
+    // its own `usage`, and this is the only place it can be read.
+    const runner = client.beta.messages.toolRunner({
       model,
       max_tokens: MAX_TOKENS,
       max_iterations: MAX_ITERATIONS,
@@ -288,6 +298,9 @@ export async function runGraphAgent({
       messages: [...opening, ...conversation],
       tools,
     });
+
+    for await (const message of runner) meter.add(model, message.usage);
+    final = await runner.done();
   } catch (error) {
     // Typed, most specific first. APIConnectionError is itself a subclass of
     // APIError (verified against this SDK version at runtime), so it has to
@@ -295,20 +308,20 @@ export async function runGraphAgent({
     // reached. Never string-match error.message — the SDK's own types are
     // the contract.
     if (error instanceof Anthropic.RateLimitError) {
-      return { type: 'error', message: 'Claude is rate-limited right now. Try again in a moment.' };
+      return withUsage({ type: 'error', message: 'Claude is rate-limited right now. Try again in a moment.' });
     }
     if (error instanceof Anthropic.APIConnectionError) {
-      return { type: 'error', message: 'Could not reach Claude. Check the connection and try again.' };
+      return withUsage({ type: 'error', message: 'Could not reach Claude. Check the connection and try again.' });
     }
     if (error instanceof Anthropic.APIError) {
-      return { type: 'error', message: `Claude's API returned an error (status ${error.status ?? 'unknown'}). Try again in a moment.` };
+      return withUsage({ type: 'error', message: `Claude's API returned an error (status ${error.status ?? 'unknown'}). Try again in a moment.` });
     }
     console.error('runGraphAgent: toolRunner failed:', error);
-    return { type: 'error', message: 'Something went wrong talking to Claude. Try again.' };
+    return withUsage({ type: 'error', message: 'Something went wrong talking to Claude. Try again.' });
   }
 
   if (final.stop_reason === 'refusal') {
-    return { type: 'error', message: 'Claude declined this request.' };
+    return withUsage({ type: 'error', message: 'Claude declined this request.' });
   }
 
   const summary = final.content
@@ -325,7 +338,7 @@ export async function runGraphAgent({
   // resumes those on its own — and end_turn/stop_sequence are a complete turn.
   const stoppedEarly = ['tool_use', 'max_tokens', 'model_context_window_exceeded'].includes(final.stop_reason);
 
-  return shapeTurn({ staged, summary, stoppedEarly });
+  return withUsage(shapeTurn({ staged, summary, stoppedEarly }));
 }
 
 export default runGraphAgent;
