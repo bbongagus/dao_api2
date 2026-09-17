@@ -1,0 +1,133 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+
+import { setupAIRoutes } from './aiRoutes.js';
+
+/**
+ * The route with every collaborator stubbed. No Anthropic client is ever
+ * constructed: `runAgent` is injected, so nothing here can cost money.
+ */
+function serve(t, { ledger, runAgent, journal, getGraph } = {}) {
+  const calls = { agent: 0, recorded: [], journalled: [] };
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => { req.userId = 'someone'; next(); });
+  app.use('/api/ai', setupAIRoutes({
+    getGraph: getGraph ?? (async () => ({ nodes: [], edges: [] })),
+    journal: journal ?? { record: (...args) => { calls.journalled.push(args); } },
+    ledger: ledger === undefined ? allowingLedger(calls) : ledger,
+    runAgent: runAgent ?? (async () => {
+      calls.agent += 1;
+      return { type: 'text', message: 'ok', usage: { calls: 3, input: 1000, output: 50, dollars: 0.04 } };
+    }),
+  }));
+
+  const server = app.listen(0);
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { calls, url: `http://127.0.0.1:${server.address().port}` };
+}
+
+const allowingLedger = (calls) => ({
+  check: async () => ({ allowed: true, user: 2, global: 25, userQuota: 2, globalCap: 25, period: '2026-09' }),
+  remaining: async () => ({ user: 2, global: 25, userQuota: 2, globalCap: 25, period: '2026-09' }),
+  record: async (userId, dollars) => { calls.recorded.push({ userId, dollars }); },
+});
+
+const refusingLedger = (scope) => ({
+  check: async () => ({ allowed: false, scope, user: 0, global: 0, userQuota: 2, globalCap: 25, period: '2026-09' }),
+  remaining: async () => ({ user: 0, global: 0, userQuota: 2, globalCap: 25, period: '2026-09' }),
+  record: async () => {},
+});
+
+const chat = (url, body = { messages: [{ role: 'user', content: 'привет' }] }) =>
+  fetch(`${url}/api/ai/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+/** The route refuses without a key; give it one — nothing real is called. */
+test.before(() => { process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-not-a-real-key'; });
+
+test('a user out of quota is refused before the agent runs at all', async (t) => {
+  const { calls, url } = serve(t, { ledger: refusingLedger('user') });
+
+  const response = await chat(url);
+  const body = await response.json();
+
+  assert.equal(response.status, 402);
+  assert.equal(body.error, 'quota_exhausted');
+  assert.equal(body.scope, 'user');
+  assert.equal(calls.agent, 0, 'no API call may be made for a refused turn');
+});
+
+test('the global cap refuses too, and says it was the cap', async (t) => {
+  const { calls, url } = serve(t, { ledger: refusingLedger('global') });
+
+  const body = await (await chat(url)).json();
+
+  assert.equal(body.scope, 'global');
+  assert.equal(calls.agent, 0);
+});
+
+test('a turn within quota runs, and what it cost is charged to the user', async (t) => {
+  const { calls, url } = serve(t);
+
+  const response = await chat(url);
+  await response.text();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.agent, 1);
+  assert.deepEqual(calls.recorded, [{ userId: 'someone', dollars: 0.04 }]);
+});
+
+test('the journal records what the turn cost, not just how long it took', async (t) => {
+  const { calls, url } = serve(t);
+
+  await (await chat(url)).text();
+
+  const [, , entry] = calls.journalled[0];
+  assert.equal(entry.kind, 'agent_turn');
+  assert.equal(entry.usage.dollars, 0.04);
+  assert.equal(entry.usage.input, 1000);
+  assert.equal(entry.usage.calls, 3);
+});
+
+test('a turn that failed is still charged for the calls it made', async (t) => {
+  const { calls, url } = serve(t, {
+    runAgent: async () => ({ type: 'error', message: 'rate limited', usage: { calls: 1, dollars: 0.01 } }),
+  });
+
+  await (await chat(url)).text();
+
+  assert.deepEqual(calls.recorded, [{ userId: 'someone', dollars: 0.01 }]);
+});
+
+test('with no ledger wired the route refuses — a miswiring must not hand out free spend', async (t) => {
+  const { calls, url } = serve(t, { ledger: null });
+
+  const response = await chat(url);
+
+  assert.equal(response.status, 503);
+  assert.equal(calls.agent, 0);
+});
+
+test('the balance endpoint says what is left', async (t) => {
+  const { url } = serve(t);
+
+  const body = await (await fetch(`${url}/api/ai/balance`)).json();
+
+  assert.equal(body.user, 2);
+  assert.equal(body.userQuota, 2);
+  assert.equal(body.period, '2026-09');
+});
+
+test('a request with no messages is still a 400', async (t) => {
+  const { url } = serve(t);
+
+  const response = await chat(url, { messages: [] });
+
+  assert.equal(response.status, 400);
+});

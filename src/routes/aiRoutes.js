@@ -12,12 +12,38 @@ import { clipText } from '../services/journal.js';
 // what the agent was looking at.
 const TOOL_RESULT_LIMIT = 4000;
 
-const router = express.Router();
-
 /**
  * Setup AI routes
  */
-export function setupAIRoutes({ getGraph, journal = null }) {
+/**
+ * The agent, loaded only when a turn actually runs — importing the SDK at boot
+ * costs a slow start for a route most requests never touch. Injectable so the
+ * route can be tested without an Anthropic client existing at all.
+ */
+async function defaultRunAgent(params) {
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  const { runGraphAgent } = await import('../ai/agent.js');
+  return runGraphAgent({ client: new Anthropic(), ...params });
+}
+
+/**
+ * @param {object} deps
+ * @param {object|null} deps.ledger the spend ledger. **Required for /chat**: a
+ *        missing one refuses the turn rather than running it unmetered, so a
+ *        wiring mistake costs a 503 and not a month's budget.
+ */
+export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgent = defaultRunAgent }) {
+  // Built per call, not once per module: a module-level router accumulated the
+  // handlers of every setup and answered them all with the first one's
+  // dependencies — invisible in production, where this runs once.
+  const router = express.Router();
+
+  /** What this person has left this month. */
+  router.get('/balance', async (req, res) => {
+    if (!ledger) return res.status(503).json({ error: 'unavailable' });
+    res.json(await ledger.remaining(req.userId));
+  });
+
   /**
    * Graph chat - one streaming turn.
    *
@@ -37,6 +63,27 @@ export function setupAIRoutes({ getGraph, journal = null }) {
 
     if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
       return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY is not set on the server' });
+    }
+
+    // Fail closed: unmetered AI behind open sign-up is an open tap.
+    if (!ledger) {
+      console.error('AI chat refused: no spend ledger is wired');
+      return res.status(503).json({ success: false, error: 'unavailable' });
+    }
+
+    // Before the stream opens, so a refusal is plain JSON the client can read,
+    // and before any upstream call, so a refused turn costs nothing.
+    const verdict = await ledger.check(userId);
+    if (!verdict.allowed) {
+      return res.status(402).json({
+        error: 'quota_exhausted',
+        scope: verdict.scope,
+        user: verdict.user,
+        global: verdict.global,
+        userQuota: verdict.userQuota,
+        globalCap: verdict.globalCap,
+        period: verdict.period,
+      });
     }
 
     res.writeHead(200, {
@@ -60,13 +107,9 @@ export function setupAIRoutes({ getGraph, journal = null }) {
     let result = null;
 
     try {
-      const Anthropic = (await import('@anthropic-ai/sdk')).default;
-      const { runGraphAgent } = await import('../ai/agent.js');
-
       const graph = await getGraph(graphId || 'main', userId);
 
-      result = await runGraphAgent({
-        client: new Anthropic(),
+      result = await runAgent({
         model,
         nodes: graph?.nodes || [],
         edges: graph?.edges || [],
@@ -84,6 +127,19 @@ export function setupAIRoutes({ getGraph, journal = null }) {
     } finally {
       if (!aborted) res.end();
 
+      // Charged after the fact: a turn's cost is only known once it has run,
+      // so the turn that crosses the line overshoots by its own cost. Charged
+      // even when the turn failed — the calls it made before failing were
+      // billed by Anthropic all the same.
+      const dollars = result?.usage?.dollars;
+      if (dollars > 0) {
+        try {
+          await ledger.record(userId, dollars);
+        } catch (error) {
+          console.error('Failed to record AI spend — the turn is unbilled:', error);
+        }
+      }
+
       // The turn as it happened, so "what did it just do?" has an answer
       // after the chat window is gone.
       const lastRequest = [...messages].reverse().find((m) => m.role === 'user');
@@ -93,6 +149,7 @@ export function setupAIRoutes({ getGraph, journal = null }) {
         model,
         ms: Date.now() - startedAt,
         aborted,
+        usage: result?.usage ?? null,
         tools: toolCalls.map((call) => ({ ...call, result: clipText(call.result, TOOL_RESULT_LIMIT) })),
         result,
       });
@@ -103,5 +160,3 @@ export function setupAIRoutes({ getGraph, journal = null }) {
 
   return router;
 }
-
-export default router;

@@ -25,6 +25,7 @@ import { scanGraphKeys } from './services/graphKeys.js';
 import { broadcastToGraph } from './handlers/broadcast.js';
 import { getNodeIndex } from './services/nodeIndex.js';
 import { createJournal } from './services/journal.js';
+import { createSpendLedger } from './ai/spend.js';
 
 // Import handlers
 import { setupWebSocketHandler } from './handlers/websocketHandler.js';
@@ -62,6 +63,14 @@ const clients = new Map();
 // What changed and what the agent did, per user and graph. Read it with
 // `npm run journal`.
 const journal = createJournal(redis);
+
+// What one person, and everyone together, may spend on AI in a calendar month.
+// Both are dollars of real API cost. The defaults are deliberately small: the
+// beta is friends, and sign-up is open to anyone who finds the URL.
+const ledger = createSpendLedger(redis, {
+  userQuota: Number(process.env.AI_USER_MONTHLY_QUOTA_USD ?? 2),
+  globalCap: Number(process.env.AI_GLOBAL_MONTHLY_CAP_USD ?? 25),
+});
 
 /**
  * Redis Operations - Core data access
@@ -164,7 +173,7 @@ setupWebSocketHandler({
 
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients }));
-app.use('/api/ai', setupAIRoutes({ getGraph, journal }));
+app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -161,3 +161,29 @@ test('an agent answer spread over paragraphs still reads as one outcome line', (
   assert.equal(out.split('\n').length, 2, 'the request line and the outcome line');
   assert.match(out, /Первая строка\. \*\*Вторая\*\* - третья/);
 });
+
+test('an agent turn shows what it cost — tokens and dollars, over every call it made', () => {
+  const out = formatEntry({
+    kind: 'agent_turn', at: '2026-09-15T11:55:13.000Z',
+    request: 'Построй план',
+    tools: [],
+    usage: { calls: 9, input: 48120, output: 1840, cacheRead: 31000, cacheWrite: 6200, dollars: 0.1234 },
+    result: { type: 'text', message: 'Готово.' },
+  });
+
+  assert.match(out, /\$0\.1234/, 'the dollars are shown');
+  assert.match(out, /9 calls/, 'and how many API calls it took');
+  assert.match(out, /48120 in/);
+  assert.match(out, /1840 out/);
+  assert.match(out, /31000 cached/);
+});
+
+test('a turn recorded before costs were measured still renders', () => {
+  const out = formatEntry({
+    kind: 'agent_turn', at: '2026-09-15T11:55:13.000Z', request: 'Старая запись',
+    tools: [], result: { type: 'text', message: 'Готово.' },
+  });
+
+  assert.match(out, /Старая запись/);
+  assert.doesNotMatch(out, /\$/);
+});

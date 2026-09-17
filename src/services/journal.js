@@ -126,6 +126,18 @@ const outcome = (result) => {
 };
 
 /** One entry as the lines a person reads in a terminal. */
+/**
+ * What a turn cost, on one line. A turn is many API calls — the count is there
+ * because a turn that took nine of them is a different animal from one that
+ * took two, at the same price.
+ */
+function spend({ calls = 0, input = 0, output = 0, cacheRead = 0, cacheWrite = 0, dollars = 0 }) {
+  const parts = [`${input} in`, `${output} out`];
+  if (cacheRead) parts.push(`${cacheRead} cached`);
+  if (cacheWrite) parts.push(`${cacheWrite} written`);
+  return `$${dollars.toFixed(4)}  ${calls} calls  ${parts.join(', ')}`;
+}
+
 export function formatEntry(entry) {
   const when = time(entry.at);
 
@@ -136,6 +148,7 @@ export function formatEntry(entry) {
       lines.push(`    ${call.name} ${JSON.stringify(call.input ?? {})} → ${clipText(firstLine, 120)}`);
     }
     lines.push(`    ⇒ ${outcome(entry.result)}`);
+    if (entry.usage) lines.push(`    ${spend(entry.usage)}`);
     return lines.join('\n');
   }
 
