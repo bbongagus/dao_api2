@@ -191,8 +191,8 @@ setupWebSocketHandler({
   clients,
   getGraph,
   saveGraph,
-  addOperation,
-  applyOperation
+  applyOperation,
+  verifyToken
 });
 
 // Setup REST API routes
