@@ -1,7 +1,7 @@
 /**
  * Operations Index - Router for all graph operations
  * Replaces the large switch statement in operationHandler.js
- * 
+ *
  * Now passes NodeIndex for O(1) lookups
  */
 
@@ -16,27 +16,27 @@ import { handleUpdateViewport } from './viewport.js';
 /**
  * Operation handlers map
  * Maps operation type to handler function
- * Signature: (graph, payload, graphId, analytics, nodeIndex) => boolean
+ * Signature: (graph, payload, graphId, nodeIndex, userId) => boolean
  */
 const operationHandlers = {
-  ADD_NODE: (graph, payload, graphId, analytics, nodeIndex, userId) =>
+  ADD_NODE: (graph, payload, graphId, nodeIndex) =>
     handleAddNode(graph, payload, nodeIndex),
-  
-  UPDATE_NODE: (graph, payload, graphId, analytics, nodeIndex, userId) =>
-    handleUpdateNode(graph, payload, graphId, analytics, nodeIndex, userId),
-  
-  UPDATE_NODE_POSITION: (graph, payload, graphId, analytics, nodeIndex, userId) =>
+
+  UPDATE_NODE: (graph, payload, graphId, nodeIndex, userId) =>
+    handleUpdateNode(graph, payload, graphId, nodeIndex, userId),
+
+  UPDATE_NODE_POSITION: (graph, payload, graphId, nodeIndex) =>
     handleUpdateNodePosition(graph, payload, nodeIndex),
-  
-  DELETE_NODE: (graph, payload, graphId, analytics, nodeIndex, userId) =>
+
+  DELETE_NODE: (graph, payload, graphId, nodeIndex) =>
     handleDeleteNode(graph, payload, nodeIndex),
-  
+
   ADD_EDGE: (graph, payload) =>
     handleAddEdge(graph, payload),
-  
+
   DELETE_EDGE: (graph, payload) =>
     handleDeleteEdge(graph, payload),
-  
+
   UPDATE_VIEWPORT: (graph, payload) =>
     handleUpdateViewport(graph, payload),
 };
@@ -46,23 +46,22 @@ const operationHandlers = {
  * @param {string} type - Operation type
  * @param {Object} graph - The graph object
  * @param {Object} payload - Operation payload
- * @param {string} graphId - Graph ID (for analytics)
- * @param {Object} analytics - Analytics service
+ * @param {string} graphId - Graph ID (for daily completions)
  * @param {Object} nodeIndex - NodeIndex for O(1) lookups
- * @param {string} userId - User ID for daily completions tracking
+ * @param {string} userId - Whose graph this is
  * @returns {boolean} - Success status
  */
-export function routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId) {
+export function routeOperation(type, graph, payload, graphId, nodeIndex, userId) {
   const handler = operationHandlers[type];
-  
+
   if (!handler) {
     logger.warn(`Unknown operation type: ${type}`);
     return false;
   }
-  
+
   logger.operation(type, { nodeId: payload.id || payload.nodeId || payload.edgeId });
-  
-  return handler(graph, payload, graphId, analytics, nodeIndex, userId);
+
+  return handler(graph, payload, graphId, nodeIndex, userId);
 }
 
 // Export individual handlers for direct access if needed

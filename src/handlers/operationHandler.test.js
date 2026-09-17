@@ -18,8 +18,6 @@ function harness() {
   const apply = createOperationHandler({
     getGraph: async () => structuredClone(stored),
     saveGraph: async (graphId, graph) => { stored = graph; return true; },
-    addOperation: async () => true,
-    analytics: null,
     journal: { record: async (userId, graphId, entry) => { recorded.push({ userId, graphId, entry }); } },
   });
   return { apply, recorded };
@@ -50,5 +48,15 @@ test('a drag is applied but not journalled', async () => {
 
   await apply('main', { type: 'UPDATE_NODE_POSITION', payload: { nodeId: 'stage', position: { x: 5, y: 5 } } }, 'user-1');
 
+  assert.equal(recorded.length, 0);
+});
+
+test('an operation with no user is refused before it touches anything', () => {
+  const { apply, recorded } = harness();
+
+  assert.throws(
+    () => apply('main', { type: 'UPDATE_NODE', payload: { nodeId: 'stage', updates: { title: 'x' } } }),
+    /userId/
+  );
   assert.equal(recorded.length, 0);
 });
