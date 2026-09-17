@@ -15,10 +15,11 @@
 import { logger } from '../utils/logger.js';
 import { routeOperation } from './operations/index.js';
 import { describeOperation } from '../services/journal.js';
+import { createGraphQueue } from './graphQueue.js';
 
-// Per-graph operation queue: ensures operations for the same graph run sequentially.
-// Key: "userId:graphId", Value: Promise (tail of the queue)
-const graphQueues = new Map();
+// Per-graph operation queue: ensures operations for the same graph run
+// sequentially. Exported so a shutdown can wait for it — see graphQueue.js.
+export const graphQueue = createGraphQueue();
 let operationSeq = 0; // Global sequence counter for debugging
 
 /**
@@ -71,12 +72,7 @@ export function createOperationHandler(deps) {
     const lockKey = `${userId}:${graphId}`;
     const seq = ++operationSeq;
 
-    // Get the current tail of the queue (or a resolved promise if empty)
-    const prev = graphQueues.get(lockKey) || Promise.resolve();
-
-    // Chain our operation ONTO the queue — it runs inside .then(),
-    // so it physically cannot execute until prev resolves
-    const task = prev.then(async () => {
+    return graphQueue.enqueue(lockKey, async () => {
       logger.info(`[QUEUE #${seq}] START ${operation.type} for ${lockKey}`);
       try {
         const result = await executeOperation(graphId, operation, userId, seq);
@@ -87,12 +83,6 @@ export function createOperationHandler(deps) {
         return null;
       }
     });
-
-    // Store the task as the new tail. Use .catch() so errors don't break the chain.
-    graphQueues.set(lockKey, task.catch(() => {}));
-
-    // Return the task so the caller gets the operation result
-    return task;
   };
 }
 

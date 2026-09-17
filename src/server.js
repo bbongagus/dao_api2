@@ -31,7 +31,7 @@ import { corsOptions } from './corsPolicy.js';
 
 // Import handlers
 import { setupWebSocketHandler } from './handlers/websocketHandler.js';
-import { createOperationHandler } from './handlers/operationHandler.js';
+import { createOperationHandler, graphQueue } from './handlers/operationHandler.js';
 
 // Import routes
 import { setupGraphRoutes } from './routes/graphRoutes.js';
@@ -237,20 +237,38 @@ server.listen(PORT, () => {
   logger.info(`🔐 Trusting tokens from ${authConfig.issuer} for ${authConfig.audience}`);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, closing connections...');
+// Graceful shutdown.
+//
+// The old version disconnected Redis first and never waited for the operation
+// queue, so a save in flight was cut off mid-write — on a platform that sends
+// SIGTERM before every deploy. Order matters: stop taking work, let what is
+// running finish, then let Redis go.
+let shuttingDown = false;
 
-  wss.clients.forEach((client) => {
-    client.close();
-  });
+async function shutDown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`${signal} received, closing connections...`);
+
+  server.close(() => logger.info('Server closed to new connections'));
+  wss.clients.forEach((client) => client.close());
+
+  const { pending, timedOut } = await graphQueue.drain({ timeoutMs: 5000 });
+  if (timedOut) logger.error(`Shutdown: ${pending} queued operation(s) did not finish in time`);
+  else if (pending) logger.info(`Shutdown: ${pending} queued operation(s) finished`);
 
   redis.disconnect();
+  process.exit(0);
+}
 
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
+process.on('SIGTERM', () => shutDown('SIGTERM'));
+// Ctrl-C in a terminal. Without this the dev server died without draining.
+process.on('SIGINT', () => shutDown('SIGINT'));
+
+// A rejection nobody caught used to end the process silently on some Node
+// versions and be invisible on others. Log it; do not pretend it is fatal.
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled rejection: ${reason?.stack || reason}`);
 });
 
 export { app, wss };

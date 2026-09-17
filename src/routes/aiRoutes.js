@@ -39,6 +39,11 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
   // dependencies — invisible in production, where this runs once.
   const router = express.Router();
 
+  // One turn at a time per person. Without it a handful of tabs, or a stuck
+  // retry loop, run turns in parallel and spend a month's quota in a minute —
+  // the check before a turn only sees what has already been charged.
+  const inFlight = new Set();
+
   /** What this person has left this month. */
   router.get('/balance', async (req, res) => {
     if (!ledger) return res.status(503).json({ error: 'unavailable' });
@@ -90,6 +95,11 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
       });
     }
 
+    if (inFlight.has(userId)) {
+      return res.status(409).json({ error: 'turn_in_progress' });
+    }
+    inFlight.add(userId);
+
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -136,6 +146,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
       result = { type: 'error', message: error.message || 'AI chat failed' };
       if (!aborted) emit(result);
     } finally {
+      inFlight.delete(userId);
       if (!aborted) res.end();
 
       // Charged after the fact: a turn's cost is only known once it has run,

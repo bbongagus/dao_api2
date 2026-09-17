@@ -165,3 +165,43 @@ test('a person who closes the tab stops the upstream calls they would still be b
   assert.ok(seenSignal, 'the agent must be given a signal at all');
   assert.equal(abortedDuringTurn, true, 'closing the response must abort the turn');
 });
+
+test('one turn at a time per person — a second is refused while the first runs', async (t) => {
+  let release = () => {};
+  const firstReached = new Promise((resolve) => { release = resolve; });
+  let started = 0;
+
+  // Always let the held turn go, even if an assertion below throws first:
+  // otherwise the request hangs and the server never closes.
+  t.after(() => release());
+
+  const { url } = serve(t, {
+    runAgent: async () => {
+      started += 1;
+      await firstReached;
+      return { type: 'text', message: 'ok', usage: { calls: 1, dollars: 0.01 } };
+    },
+  });
+
+  const first = chat(url).then((r) => r.text()).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const second = await chat(url);
+  const body = await second.json().catch(() => ({}));
+
+  release();
+  await first;
+
+  assert.equal(second.status, 409);
+  assert.equal(body.error, 'turn_in_progress');
+  assert.equal(started, 1, 'the second turn must not reach the agent');
+});
+
+test('the next turn is allowed once the first has finished', async (t) => {
+  const { url } = serve(t);
+
+  await (await chat(url)).text();
+  const second = await chat(url);
+
+  assert.equal(second.status, 200);
+  await second.text();
+});
