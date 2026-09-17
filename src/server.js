@@ -26,6 +26,7 @@ import { broadcastToGraph } from './handlers/broadcast.js';
 import { getNodeIndex } from './services/nodeIndex.js';
 import { createJournal } from './services/journal.js';
 import { createSpendLedger } from './ai/spend.js';
+import { healthReport } from './health.js';
 
 // Import handlers
 import { setupWebSocketHandler } from './handlers/websocketHandler.js';
@@ -177,12 +178,8 @@ app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    redis: redis.status === 'ready',
-    websocket: wss.clients.size,
-    timestamp: new Date().toISOString()
-  });
+  const { status, body } = healthReport({ redisStatus: redis.status, clients: wss.clients.size });
+  res.status(status).json(body);
 });
 
 // The counter needs no index; reading through getGraph would repoint the

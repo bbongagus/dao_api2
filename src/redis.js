@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { redisRetryDelay } from './redisRetry.js';
 
 // Railway Redis connection with IPv6 support
 // Railway uses IPv6 network, need to set family: 0 for auto-detection
@@ -13,13 +14,15 @@ const redisUrl = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL;
 // Common Redis options with IPv6 support
 const commonOptions = {
   family: 0, // 0 = auto-detect IPv4/IPv6, 4 = IPv4 only, 6 = IPv6 only
+  // Never stop reconnecting: Redis holds every graph, so a server that has
+  // given up can serve nothing. See redisRetry.js.
   retryStrategy: (times) => {
-    if (times > 10) {
-      console.error('❌ Redis retry limit reached');
-      return null; // Stop retrying
+    const delay = redisRetryDelay(times);
+    // Loud at first, then quiet — an outage should not fill the log with a
+    // line every two seconds for hours.
+    if (times <= 5 || times % 30 === 0) {
+      console.log(`🔄 Redis retry attempt ${times}, waiting ${delay}ms`);
     }
-    const delay = Math.min(times * 100, 2000);
-    console.log(`🔄 Redis retry attempt ${times}, waiting ${delay}ms`);
     return delay;
   },
   maxRetriesPerRequest: 3,
