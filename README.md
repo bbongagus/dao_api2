@@ -20,7 +20,8 @@ cd dao_api2
 cp .env.example .env
 ```
 
-3. Start with Docker:
+3. Start with Docker. The container runs under `NODE_ENV=production` and trusts
+   Auth0 only, so `.env` needs `AUTH0_DOMAIN` and `AUTH_AUDIENCE`:
 ```bash
 docker-compose up -d
 ```
@@ -49,9 +50,18 @@ curl http://localhost:3001/health
 # Install dependencies
 npm install
 
-# Run locally (requires Redis)
-npm start
+# Once: a local key pair and AUTH_AUDIENCE in .env — the server does not start without them
+npm run auth:dev-keys
+
+# Run locally (requires Redis); reads .env
+npm run dev
+
+# A token for a user, for scripts and graphy's VITE_DEV_TOKEN
+npm run -s token -- dev-user-1
 ```
+
+Every `/api` request and every WebSocket subscription carries a token; see
+[AUTHENTICATION.md](./AUTHENTICATION.md).
 
 ### Docker Development
 ```bash
@@ -72,11 +82,11 @@ docker-compose logs -f optimistic-backend
 const ws = new WebSocket('ws://localhost:3001');
 
 ws.on('open', () => {
-  // Subscribe to graph
+  // Subscribe to graph; the token says who is asking
   ws.send(JSON.stringify({
     type: 'SUBSCRIBE',
     graphId: 'main',
-    userId: 'user1'
+    token: '<jwt>'
   }));
 });
 
@@ -89,14 +99,16 @@ ws.on('message', (data) => {
 ### REST API
 ```javascript
 // Load graph
-fetch('http://localhost:3001/api/graphs/main')
+fetch('http://localhost:3001/api/graphs/main', {
+  headers: { Authorization: `Bearer ${token}` }
+})
   .then(res => res.json())
   .then(data => console.log(data.graph));
 
 // Save graph
 fetch('http://localhost:3001/api/graphs/main', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
   body: JSON.stringify({ nodes: [], edges: [] })
 });
 ```
@@ -212,12 +224,15 @@ railway up
 ```bash
 NODE_ENV=production
 CORS_ORIGINS=https://your-frontend.vercel.app
+AUTH0_DOMAIN=your-tenant.us.auth0.com
+AUTH_AUDIENCE=https://dao-api
 # REDIS_URL and PORT are set automatically by Railway
 ```
 
 ## Architecture
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system design.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system design, and
+[AUTHENTICATION.md](./AUTHENTICATION.md) for who may read and write a graph.
 
 ## License
 

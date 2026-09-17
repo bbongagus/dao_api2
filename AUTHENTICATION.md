@@ -25,6 +25,10 @@ a Redis key.
 `Authorization: Bearer <token>`; anything else is `401 {"error":"unauthorized"}`.
 Which check failed goes to the log; the token never does. `/health` is open.
 
+While a token cannot be checked at all — Auth0's key set timed out, could not be
+reached, or came back malformed — the answer is `503 {"error":"unavailable"}`:
+the outage is not the person's, and a 401 would send them to sign in again.
+
 ## WebSocket
 
 ```json
@@ -32,9 +36,13 @@ Which check failed goes to the log; the token never does. `/health` is open.
 ```
 
 A refused token gets `{"type":"AUTH_ERROR"}` and a close with code 4401, and
-nothing is read. `OPERATION` and `SYNC` are refused until a subscription has
-succeeded. An open socket is not checked again when its token expires; a
-reconnect brings a fresh one.
+nothing is read. A token that cannot be checked right now gets
+`{"type":"AUTH_UNAVAILABLE"}` and a close with 1013 (try again later), and the
+client reconnects as after any drop. `OPERATION` and `SYNC` are refused until a
+subscription has succeeded. A socket's messages are handled one at a time, in
+order, so an `OPERATION` sent right behind `SUBSCRIBE` waits for its token
+check. An open socket is not checked again when its token expires; a reconnect
+brings a fresh one.
 
 ## Locally
 

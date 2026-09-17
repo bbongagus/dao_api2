@@ -76,12 +76,12 @@ Client B                      |                          |
 
 ### Client -> Server
 
-1. **SUBSCRIBE** - Join a graph channel
+1. **SUBSCRIBE** - Join a graph channel, as the user the token proves ([AUTHENTICATION.md](./AUTHENTICATION.md))
 ```json
 {
   "type": "SUBSCRIBE",
   "graphId": "main",
-  "userId": "user1"
+  "token": "<jwt>"
 }
 ```
 

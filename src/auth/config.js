@@ -15,7 +15,7 @@ export function readAuthConfig(env) {
   const devKey = env.AUTH_DEV_PUBLIC_KEY?.trim();
   const audience = env.AUTH_AUDIENCE?.trim();
 
-  if (!audience) throw new Error('AUTH_AUDIENCE is not set');
+  if (!audience) throw new Error('AUTH_AUDIENCE is not set — run npm run auth:dev-keys locally, or set it on Railway');
   if (domain && devKey) throw new Error('Set AUTH0_DOMAIN or AUTH_DEV_PUBLIC_KEY, not both');
   if (!domain && !devKey) {
     throw new Error('Set AUTH0_DOMAIN (production) or AUTH_DEV_PUBLIC_KEY (npm run auth:dev-keys)');

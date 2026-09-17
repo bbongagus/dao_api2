@@ -32,6 +32,13 @@ test('no audience is refused', () => {
   assert.throws(() => readAuthConfig({ AUTH0_DOMAIN: 'dev-x.us.auth0.com' }), /AUTH_AUDIENCE/);
 });
 
+test('the missing audience says where to get one', () => {
+  assert.throws(
+    () => readAuthConfig({ AUTH_DEV_PUBLIC_KEY: JSON.stringify(PUBLIC_JWK) }),
+    /npm run auth:dev-keys.*Railway/
+  );
+});
+
 test('no issuer at all is refused — there is no mode without verification', () => {
   assert.throws(() => readAuthConfig({ AUTH_AUDIENCE: AUDIENCE }), /AUTH0_DOMAIN.*AUTH_DEV_PUBLIC_KEY/);
 });

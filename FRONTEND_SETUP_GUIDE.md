@@ -213,4 +213,3 @@ Frontend использует Optimistic UI:
 - [Архитектура Optimistic UI](./OPTIMISTIC_UI_ARCHITECTURE.md)
 - [Руководство по миграции](./MIGRATION_PLAN.md)
 - [API документация](./SIMPLE_ARCHITECTURE.md)
-- [Streaming Analytics](./STREAMING_ANALYTICS_SETUP.md)

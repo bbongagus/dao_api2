@@ -148,6 +148,20 @@ async function main() {
   check(received(unsubscribed, 'ERROR'), 'an OPERATION without a subscription is refused');
   unsubscribed.close();
 
+  // Subscribed for real, as B: A's node is not in B's graph, whatever the message names.
+  const bEditsA = await subscribe({ token: tokenB });
+  bEditsA.send(JSON.stringify({
+    type: 'OPERATION',
+    userId: USER_A,
+    payload: { type: 'UPDATE_NODE', payload: { id: `secret-${stamp}`, updates: { title: 'overwritten by B' } } },
+  }));
+  await wait(500);
+  check(
+    received(bEditsA, 'OPERATION_ERROR') && !received(bEditsA, 'OPERATION_APPLIED'),
+    "B, subscribed with B's token, editing A's node: OPERATION_ERROR, nothing applied"
+  );
+  bEditsA.close();
+
   const after = await redis.get(`user:${USER_A}:graph:main`);
   check(after === before, "A's graph in Redis is byte-for-byte what it was");
 
