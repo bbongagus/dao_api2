@@ -38,7 +38,7 @@ export function setupWebSocketHandler(deps) {
     }));
 
     // Handle messages
-    ws.on('message', async (message) => {
+    const handleMessage = async (message) => {
       try {
         const data = JSON.parse(message);
         
@@ -77,6 +77,17 @@ export function setupWebSocketHandler(deps) {
           message: error.message
         }));
       }
+    };
+
+    // One message at a time: a SUBSCRIBE's token check is async, and an
+    // OPERATION sent right behind it must wait for it, not be refused.
+    let inbox = Promise.resolve();
+    ws.on('message', (message) => {
+      // handleMessage answers its own errors; this catch only keeps one that
+      // escapes it from stopping every later message on the socket.
+      inbox = inbox.then(() => handleMessage(message)).catch((error) => {
+        logger.error(`Client ${clientId} message queue error:`, error);
+      });
     });
 
     // Handle disconnection

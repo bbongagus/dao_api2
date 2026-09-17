@@ -16,8 +16,14 @@ function fakeSocket() {
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** A server with one connected client. A token "token-for:<user>" proves <user>; anything else is refused. */
+/**
+ * A server with one connected client. A token "token-for:<user>" proves <user>;
+ * "slow-token-for:<user>" does too, 20 ms later, as a key set being fetched
+ * would; anything else is refused.
+ */
 function connect() {
   const wss = new EventEmitter();
   const clients = new Map();
@@ -31,6 +37,10 @@ function connect() {
     saveGraph: async () => true,
     applyOperation: async (graphId, operation, userId) => { applied.push({ graphId, operation, userId }); return { nodes: [] }; },
     verifyToken: async (token) => {
+      if (typeof token === 'string' && token.startsWith('slow-token-for:')) {
+        await wait(20);
+        return { userId: token.slice('slow-token-for:'.length) };
+      }
       if (typeof token === 'string' && token.startsWith('token-for:')) return { userId: token.slice('token-for:'.length) };
       throw new Error('refused');
     },
@@ -39,12 +49,14 @@ function connect() {
   const ws = fakeSocket();
   wss.emit('connection', ws, {});
 
+  // Hands a message over without waiting: a client can send several in one task.
+  const emit = (message) => ws.emit('message', JSON.stringify(message));
   const send = async (message) => {
-    ws.emit('message', JSON.stringify(message));
-    for (let i = 0; i < 5; i++) await tick();
+    emit(message);
+    await settle();
   };
 
-  return { ws, clients, reads, applied, send, client: () => [...clients.values()][0] };
+  return { ws, clients, reads, applied, emit, send, client: () => [...clients.values()][0] };
 }
 
 const types = (ws) => ws.sent.map((m) => m.type);
@@ -119,4 +131,28 @@ test('a refused re-SUBSCRIBE drops the user the socket had', async () => {
   assert.equal(client().userId, null);
   assert.equal(client().graphId, null);
   assert.equal(applied.length, 0);
+});
+
+test('an OPERATION sent right behind SUBSCRIBE waits for it', async () => {
+  const { applied, emit } = connect();
+
+  // In one task, the way the client flushes the edits it queued while the socket was opening.
+  emit({ type: 'SUBSCRIBE', graphId: 'main', token: 'token-for:bob' });
+  emit(edit);
+  await settle();
+
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].userId, 'bob');
+});
+
+test('two SUBSCRIBEs take effect in the order sent', async () => {
+  const { ws, emit, client } = connect();
+
+  // The first token takes longer to check than the second.
+  emit({ type: 'SUBSCRIBE', graphId: 'main', token: 'slow-token-for:alice' });
+  emit({ type: 'SUBSCRIBE', graphId: 'main', token: 'token-for:bob' });
+  await wait(60);
+
+  assert.equal(client().userId, 'bob');
+  assert.equal(ws.sent.filter((m) => m.type === 'GRAPH_STATE').at(-1).payload.userId, 'bob');
 });
