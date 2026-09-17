@@ -1,10 +1,7 @@
 /**
  * Simple Optimistic UI Server - Refactored Version
  * Main entry point - coordinates all modules
- * 
- * Original: simple-server.js (1136 lines)
- * Refactored: server.js (~200 lines) + modular imports
- * 
+ *
  * Performance: Uses NodeIndex for O(1) node lookup
  */
 
@@ -17,14 +14,16 @@ import { CronJob } from 'cron';
 // Import Redis client
 import redis from './redis.js';
 
+// Authentication
+import { readAuthConfig } from './auth/config.js';
+import { createTokenVerifier } from './auth/verifyToken.js';
+import { createRequireUser } from './auth/requireUser.js';
+
 // Import services
-import SimplifiedAnalytics from './analytics-v2.js';
-import progressSnapshots from './progress-snapshots.js';
 import { runHabitCounter } from './services/dailyHabitCounter.js';
 import { scanGraphKeys } from './services/graphKeys.js';
 import { broadcastToGraph } from './handlers/broadcast.js';
-import { DEFAULT_USER_ID } from './services/graphService.js';
-import { getNodeIndex, clearNodeIndex } from './services/nodeIndex.js';
+import { getNodeIndex } from './services/nodeIndex.js';
 import { createJournal } from './services/journal.js';
 
 // Import handlers
@@ -33,15 +32,22 @@ import { createOperationHandler } from './handlers/operationHandler.js';
 
 // Import routes
 import { setupGraphRoutes } from './routes/graphRoutes.js';
-import { setupAnalyticsRoutes } from './routes/analyticsRoutes.js';
 import { setupAIRoutes } from './routes/aiRoutes.js';
 
 // Import logger
 import { logger } from './utils/logger.js';
 
+// Whom this process believes about who is asking. A missing or contradictory
+// configuration throws here, and the server does not start.
+const authConfig = readAuthConfig(process.env);
+const verifyToken = createTokenVerifier(authConfig);
+
 // Initialize Express app
 const app = express();
+// cors() answers preflight requests itself, so they never reach requireUser.
 app.use(cors());
+// Ahead of the body parser: a request that proves no user is not worth parsing.
+app.use('/api', createRequireUser(verifyToken));
 app.use(express.json());
 
 // Initialize HTTP server
@@ -53,9 +59,6 @@ const wss = new WebSocketServer({ server });
 // Track connected clients
 const clients = new Map();
 
-// Initialize Analytics Service
-const analytics = new SimplifiedAnalytics(redis);
-
 // What changed and what the agent did, per user and graph. Read it with
 // `npm run journal`.
 const journal = createJournal(redis);
@@ -63,22 +66,18 @@ const journal = createJournal(redis);
 /**
  * Redis Operations - Core data access
  * Now with NodeIndex integration for O(1) lookups
+ *
+ * A graph lives only under its owner's key. There is no default owner and no
+ * shared fallback key: a graph that is not the user's does not exist for them.
  */
-async function getGraph(graphId, userId = DEFAULT_USER_ID) {
+async function getGraph(graphId, userId) {
+  if (!userId) throw new Error(`getGraph ${graphId} without a userId`);
+
   try {
     logger.debug(`Getting graph: ${graphId} for user: ${userId}`);
-    
-    // Try user-specific key first
-    let data = await redis.get(`user:${userId}:graph:${graphId}`);
-    
-    // Fallback to old key format for backward compatibility
-    if (!data) {
-      data = await redis.get(`graph:${graphId}`);
-      if (data) {
-        logger.debug(`Found graph in old format, will migrate on save`);
-      }
-    }
-    
+
+    const data = await redis.get(`user:${userId}:graph:${graphId}`);
+
     if (!data) {
       logger.debug(`Graph ${graphId} not found, returning empty graph`);
       return {
@@ -89,17 +88,17 @@ async function getGraph(graphId, userId = DEFAULT_USER_ID) {
         userId: userId
       };
     }
-    
+
     const graph = JSON.parse(data);
     if (!graph.userId) {
       graph.userId = userId;
     }
-    
+
     // Build NodeIndex for O(1) lookups
     const indexKey = `${userId}:${graphId}`;
     const nodeIndex = getNodeIndex(indexKey);
     nodeIndex.buildIndex(graph);
-    
+
     logger.success(`Graph ${graphId} loaded: ${graph.nodes.length} nodes, index size: ${nodeIndex.size}`);
     return graph;
   } catch (error) {
@@ -108,47 +107,29 @@ async function getGraph(graphId, userId = DEFAULT_USER_ID) {
   }
 }
 
-async function saveGraph(graphId, graph, userId = DEFAULT_USER_ID) {
+async function saveGraph(graphId, graph, userId) {
+  if (!userId) throw new Error(`saveGraph ${graphId} without a userId`);
+
   try {
     graph.version = (graph.version || 0) + 1;
     graph.lastUpdated = new Date().toISOString();
     graph.userId = userId;
-    
+
     const graphData = JSON.stringify(graph);
     const redisKey = `user:${userId}:graph:${graphId}`;
-    
+
     logger.debug(`Saving graph ${graphId}: ${graph.nodes.length} nodes, version ${graph.version}`);
-    
+
     await redis.set(redisKey, graphData);
     logger.success(`Graph ${graphId} saved successfully`);
-    
-    // Clean up old key format
-    const oldKey = `graph:${graphId}`;
-    const oldData = await redis.get(oldKey);
-    if (oldData) {
-      await redis.del(oldKey);
-      logger.debug(`Cleaned up old key format: ${oldKey}`);
-    }
-    
+
     // Save to history
     const historyKey = `history:${userId}:${graphId}:${Date.now()}`;
     await redis.setex(historyKey, 3600, graphData);
-    
+
     return true;
   } catch (error) {
     logger.error('Redis save error:', error);
-    return false;
-  }
-}
-
-async function addOperation(graphId, operation) {
-  try {
-    const key = `operations:${graphId}`;
-    await redis.lpush(key, JSON.stringify(operation));
-    await redis.ltrim(key, 0, 99);
-    return true;
-  } catch (error) {
-    logger.error('Redis operation error:', error);
     return false;
   }
 }
@@ -157,7 +138,8 @@ async function addOperation(graphId, operation) {
  * Get NodeIndex for a specific graph
  * Used by operations for O(1) node lookup
  */
-function getGraphNodeIndex(graphId, userId = DEFAULT_USER_ID) {
+function getGraphNodeIndex(graphId, userId) {
+  if (!userId) throw new Error(`getGraphNodeIndex ${graphId} without a userId`);
   const indexKey = `${userId}:${graphId}`;
   return getNodeIndex(indexKey);
 }
@@ -166,8 +148,6 @@ function getGraphNodeIndex(graphId, userId = DEFAULT_USER_ID) {
 const applyOperation = createOperationHandler({
   getGraph,
   saveGraph,
-  addOperation,
-  analytics,
   getNodeIndex: getGraphNodeIndex,
   journal
 });
@@ -178,13 +158,12 @@ setupWebSocketHandler({
   clients,
   getGraph,
   saveGraph,
-  addOperation,
-  applyOperation
+  applyOperation,
+  verifyToken
 });
 
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients }));
-app.use('/api/analytics', setupAnalyticsRoutes({ analytics, progressSnapshots }));
 app.use('/api/ai', setupAIRoutes({ getGraph, journal }));
 
 // Health check endpoint
@@ -196,36 +175,6 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
-// Initialize daily snapshot job at 00:00 every day
-const snapshotJob = new CronJob(
-  '0 0 * * *',
-  async () => {
-    logger.info('Running daily progress snapshot job...');
-    try {
-      const snapshots = await progressSnapshots.snapshotAllNodes(new Date(), DEFAULT_USER_ID, 'main');
-      logger.success(`Daily snapshot completed: ${snapshots.length} nodes`);
-    } catch (error) {
-      logger.error('Daily snapshot failed:', error);
-    }
-  },
-  null,
-  true,
-  'Europe/Belgrade'
-);
-
-// Run initial snapshot on startup
-setTimeout(async () => {
-  logger.info('Running initial progress snapshot...');
-  try {
-    const snapshots = await progressSnapshots.snapshotAllNodes(new Date(), DEFAULT_USER_ID, 'main');
-    logger.success(`Initial snapshot completed: ${snapshots.length} nodes`);
-  } catch (error) {
-    logger.error('Initial snapshot failed:', error);
-  }
-}, 5000);
-
-logger.success('Progress Snapshots Service initialized');
 
 // The counter needs no index; reading through getGraph would repoint the
 // shared NodeIndex at a copy the queue is not working on.
@@ -273,18 +222,19 @@ server.listen(PORT, () => {
 ║   NodeIndex: O(1) lookups enabled     ║
 ╚═══════════════════════════════════════╝
   `);
+  logger.info(`🔐 Trusting tokens from ${authConfig.issuer} for ${authConfig.audience}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, closing connections...');
-  
+
   wss.clients.forEach((client) => {
     client.close();
   });
-  
+
   redis.disconnect();
-  
+
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);

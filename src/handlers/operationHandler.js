@@ -14,7 +14,6 @@
 
 import { logger } from '../utils/logger.js';
 import { routeOperation } from './operations/index.js';
-import { DEFAULT_USER_ID } from '../services/graphService.js';
 import { describeOperation } from '../services/journal.js';
 
 // Per-graph operation queue: ensures operations for the same graph run sequentially.
@@ -24,10 +23,10 @@ let operationSeq = 0; // Global sequence counter for debugging
 
 /**
  * Create operation handler with dependencies
- * @param {Object} deps - Dependencies (getGraph, saveGraph, addOperation, analytics, getNodeIndex)
+ * @param {Object} deps - Dependencies (getGraph, saveGraph, getNodeIndex, journal)
  */
 export function createOperationHandler(deps) {
-  const { getGraph, saveGraph, addOperation, analytics, getNodeIndex, journal = null } = deps;
+  const { getGraph, saveGraph, getNodeIndex, journal = null } = deps;
 
   /**
    * Execute a single operation (called from inside the queue)
@@ -45,7 +44,7 @@ export function createOperationHandler(deps) {
     const change = journal ? describeOperation(graph, operation) : null;
 
     const nodeIndex = getNodeIndex ? getNodeIndex(graphId, userId) : null;
-    const success = routeOperation(type, graph, payload, graphId, analytics, nodeIndex, userId);
+    const success = routeOperation(type, graph, payload, graphId, nodeIndex, userId);
 
     if (!success) {
       logger.error(`[QUEUE #${seq}] Operation ${type} failed`);
@@ -53,7 +52,6 @@ export function createOperationHandler(deps) {
     }
 
     await saveGraph(graphId, graph, userId);
-    await addOperation(graphId, operation);
 
     if (change) await journal.record(userId, graphId, { kind: 'operation', ...change });
 
@@ -65,7 +63,11 @@ export function createOperationHandler(deps) {
    * The operation is chained onto the graph's promise queue, so it CANNOT
    * start until the previous operation for the same graph has finished.
    */
-  return function applyOperation(graphId, operation, userId = DEFAULT_USER_ID) {
+  return function applyOperation(graphId, operation, userId) {
+    // Every caller knows whose graph it changes. A missing user is a bug to
+    // surface, not a reason to write into somebody else's graph.
+    if (!userId) throw new Error(`applyOperation ${operation?.type} without a userId`);
+
     const lockKey = `${userId}:${graphId}`;
     const seq = ++operationSeq;
 

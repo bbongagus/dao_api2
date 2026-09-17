@@ -27,3 +27,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # The property authentication exists for, checked against a running
+      # server: nobody reaches a graph that is not their own.
+      - name: Live authentication and isolation test
+        run: |
+          npm run auth:dev-keys
+          PORT=3099 node --env-file=.env src/server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3099/health > /dev/null && break; sleep 1; done
+          node --env-file=.env test-auth-isolation.js http://localhost:3099
+      - name: Server log
+        if: failure()
+        run: cat server.log

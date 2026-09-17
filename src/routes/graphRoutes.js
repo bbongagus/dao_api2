@@ -2,10 +2,12 @@
  * Graph Routes - Extracted from simple-server.js
  * REST API endpoints for graph operations
  * Includes Daily Completions endpoints for eye-toggle feature
+ *
+ * Mounted behind requireUser (server.js): req.userId is the user the request's
+ * token proves. Nothing here takes a user from a header, a parameter or the body.
  */
 
 import express from 'express';
-import { DEFAULT_USER_ID } from '../services/graphService.js';
 import dailyCompletions from '../services/dailyCompletions.js';
 import { broadcastToGraph } from '../handlers/broadcast.js';
 
@@ -13,7 +15,7 @@ const router = express.Router();
 
 /**
  * Setup graph routes with dependencies
- * @param {Object} deps - Dependencies (redis, getGraph, saveGraph, clients)
+ * @param {Object} deps - Dependencies (getGraph, saveGraph, clients)
  */
 export function setupGraphRoutes(deps) {
   const { getGraph, saveGraph, clients } = deps;
@@ -22,14 +24,13 @@ export function setupGraphRoutes(deps) {
   // Copied from simple-server.js lines 762-782
   router.get('/graphs/:graphId', async (req, res) => {
     try {
-      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
-      const graph = await getGraph(req.params.graphId, userId);
-      
+      const graph = await getGraph(req.params.graphId, req.userId);
+
       // Ensure settings are included in the response
       if (graph && !graph.settings) {
         graph.settings = {};
       }
-      
+
       res.json({
         success: true,
         graph: graph
@@ -47,12 +48,12 @@ export function setupGraphRoutes(deps) {
   router.post('/graphs/:graphId', async (req, res) => {
     try {
       const graphId = req.params.graphId;
-      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+      const userId = req.userId;
       console.log(`📝 REST API: Saving graph ${graphId} for user ${userId}`);
       console.log(`   Nodes: ${req.body.nodes?.length || 0}, Edges: ${req.body.edges?.length || 0}`);
-      
+
       const graph = await getGraph(graphId, userId);
-      
+
       // Merge with existing data
       const updatedGraph = {
         ...graph,
@@ -61,23 +62,23 @@ export function setupGraphRoutes(deps) {
         viewport: req.body.viewport || graph.viewport,
         settings: req.body.settings || graph.settings || {} // Include settings from request
       };
-      
+
       const saved = await saveGraph(graphId, updatedGraph, userId);
-      
+
       if (saved) {
         console.log(`✅ REST API: Graph ${graphId} saved successfully`);
-        
+
         const broadcastCount = broadcastToGraph(clients, { userId, graphId }, {
           type: 'GRAPH_UPDATED',
           payload: updatedGraph,
           source: 'rest_api',
           timestamp: Date.now()
         });
-        
+
         if (broadcastCount > 0) {
           console.log(`📢 REST update broadcasted to ${broadcastCount} WebSocket clients`);
         }
-        
+
         res.json({
           success: true,
           version: updatedGraph.version
@@ -87,60 +88,6 @@ export function setupGraphRoutes(deps) {
       }
     } catch (error) {
       console.error(`❌ REST API save error:`, error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-
-  // Get user info
-  // Copied from simple-server.js lines 846-860
-  router.get('/users/:userId', async (req, res) => {
-    try {
-      // Simple user response for compatibility
-      res.json({
-        userId: req.params.userId,
-        email: `user${req.params.userId}@example.com`,
-        created: new Date().toISOString()
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-
-  // Create user
-  // Copied from simple-server.js lines 863-877
-  router.post('/users', async (req, res) => {
-    try {
-      const userId = req.body.userId || Date.now().toString();
-      res.json({
-        userId: userId,
-        email: req.body.email || `user${userId}@example.com`,
-        created: new Date().toISOString()
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-
-  // List user graphs
-  // Copied from simple-server.js lines 880-894
-  router.get('/users/:userId/graphs', async (req, res) => {
-    try {
-      // For simplicity, return predefined graphs
-      // In production, this would query user's graphs from Redis
-      res.json({
-        success: true,
-        graphs: ['main', 'project1', 'ideas']
-      });
-    } catch (error) {
       res.status(500).json({
         success: false,
         error: error.message
@@ -159,11 +106,10 @@ export function setupGraphRoutes(deps) {
   router.get('/graphs/:graphId/daily-completions', async (req, res) => {
     try {
       const { graphId } = req.params;
-      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
-      
-      const completions = await dailyCompletions.getCompletionIds(userId, graphId);
+
+      const completions = await dailyCompletions.getCompletionIds(req.userId, graphId);
       const today = new Date().toISOString().split('T')[0];
-      
+
       res.json({
         success: true,
         date: today,
@@ -186,11 +132,10 @@ export function setupGraphRoutes(deps) {
   router.get('/graphs/:graphId/daily-completions/details', async (req, res) => {
     try {
       const { graphId } = req.params;
-      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
-      
-      const completions = await dailyCompletions.getCompletions(userId, graphId);
+
+      const completions = await dailyCompletions.getCompletions(req.userId, graphId);
       const today = new Date().toISOString().split('T')[0];
-      
+
       res.json({
         success: true,
         date: today,
@@ -199,30 +144,6 @@ export function setupGraphRoutes(deps) {
       });
     } catch (error) {
       console.error('Failed to get daily completions details:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-
-  /**
-   * DELETE /api/graphs/:graphId/daily-completions
-   * Clears today's completions (manual reset)
-   */
-  router.delete('/graphs/:graphId/daily-completions', async (req, res) => {
-    try {
-      const { graphId } = req.params;
-      const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
-      
-      await dailyCompletions.clearCompletions(userId, graphId);
-      
-      res.json({
-        success: true,
-        message: 'Daily completions cleared'
-      });
-    } catch (error) {
-      console.error('Failed to clear daily completions:', error);
       res.status(500).json({
         success: false,
         error: error.message

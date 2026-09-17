@@ -23,6 +23,10 @@ USER nodejs
 # Открываем правильный порт (соответствует docker-compose.yml)
 EXPOSE 3001
 
+# The server refuses a dev key under NODE_ENV=production. The image sets it
+# itself: that refusal must not depend on a variable the platform may not set.
+ENV NODE_ENV=production
+
 # Запускаем приложение (новый рефакторенный сервер)
 # Используем node напрямую для ES6 модулей
 CMD ["node", "src/server.js"]

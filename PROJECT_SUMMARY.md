@@ -200,7 +200,6 @@ The system is now:
 ## 📚 Documentation
 
 - [Optimistic UI Architecture](./OPTIMISTIC_UI_ARCHITECTURE.md)
-- [Analytics Refactoring](./ANALYTICS_REFACTORING.md)
 - [Implementation Guide](./IMPLEMENTATION_GUIDE.md)
 - [Migration Plan](./MIGRATION_PLAN.md)
 

@@ -4,15 +4,22 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { DEFAULT_USER_ID, shouldResetProgress, resetAllProgress } from '../services/graphService.js';
+import { shouldResetProgress, resetAllProgress } from '../services/graphService.js';
+import { VerifierUnavailableError } from '../auth/verifyToken.js';
 import { broadcastToGraph } from './broadcast.js';
+
+/** Close code for a SUBSCRIBE whose token proves no user: the client stops retrying and signs in again. */
+export const UNAUTHORIZED = 4401;
+
+/** Close code for a SUBSCRIBE whose token cannot be checked right now: the client reconnects later, as after any drop. */
+export const TRY_AGAIN_LATER = 1013;
 
 /**
  * Setup WebSocket handler
- * @param {Object} deps - Dependencies (wss, clients, getGraph, saveGraph, addOperation, applyOperation, analytics)
+ * @param {Object} deps - Dependencies (wss, clients, getGraph, saveGraph, applyOperation, verifyToken)
  */
 export function setupWebSocketHandler(deps) {
-  const { wss, clients, getGraph, saveGraph, addOperation, applyOperation } = deps;
+  const { wss, clients, getGraph, saveGraph, applyOperation, verifyToken } = deps;
   
   let clientIdCounter = 1;
 
@@ -35,7 +42,7 @@ export function setupWebSocketHandler(deps) {
     }));
 
     // Handle messages
-    ws.on('message', async (message) => {
+    const handleMessage = async (message) => {
       try {
         const data = JSON.parse(message);
         
@@ -49,7 +56,7 @@ export function setupWebSocketHandler(deps) {
         
         switch (data.type) {
           case 'SUBSCRIBE':
-            await handleSubscribe(data, clientInfo, clientId, ws, getGraph, saveGraph);
+            await handleSubscribe(data, clientInfo, clientId, ws, { getGraph, saveGraph, verifyToken });
             break;
 
           case 'OPERATION':
@@ -74,6 +81,17 @@ export function setupWebSocketHandler(deps) {
           message: error.message
         }));
       }
+    };
+
+    // One message at a time: a SUBSCRIBE's token check is async, and an
+    // OPERATION sent right behind it must wait for it, not be refused.
+    let inbox = Promise.resolve();
+    ws.on('message', (message) => {
+      // handleMessage answers its own errors; this catch only keeps one that
+      // escapes it from stopping every later message on the socket.
+      inbox = inbox.then(() => handleMessage(message)).catch((error) => {
+        logger.error(`Client ${clientId} message queue error:`, error);
+      });
     });
 
     // Handle disconnection
@@ -91,20 +109,40 @@ export function setupWebSocketHandler(deps) {
 
 /**
  * Handle SUBSCRIBE message
+ *
+ * The token is checked before anything is read. The socket's user is the one
+ * the token proves, whatever else the message says; a userId field is ignored.
  */
-async function handleSubscribe(data, clientInfo, clientId, ws, getGraph, saveGraph) {
-  clientInfo.graphId = data.graphId;
-  clientInfo.userId = data.userId || DEFAULT_USER_ID;
-  
-  // Log userId status
-  if (!data.userId) {
-    logger.warn(`Client ${clientId} SUBSCRIBE without userId! Using DEFAULT_USER_ID`);
-  } else {
-    logger.success(`Client ${clientId} subscribed to "${data.graphId}" userId="${clientInfo.userId}"`);
+async function handleSubscribe(data, clientInfo, clientId, ws, { getGraph, saveGraph, verifyToken }) {
+  let userId;
+  try {
+    ({ userId } = await verifyToken(data.token));
+  } catch (error) {
+    // Whatever this socket was subscribed to before, it is not any more.
+    clientInfo.userId = null;
+    clientInfo.graphId = null;
+
+    // Not a refusal: the client reconnects in a while instead of sending the
+    // person to sign in for an outage that is not theirs.
+    if (error instanceof VerifierUnavailableError) {
+      logger.error(`Client ${clientId} SUBSCRIBE could not be checked: ${error.message}`);
+      ws.send(JSON.stringify({ type: 'AUTH_UNAVAILABLE' }));
+      ws.close(TRY_AGAIN_LATER, 'try again later');
+      return;
+    }
+
+    logger.warn(`Client ${clientId} SUBSCRIBE refused: ${error.message}`);
+    ws.send(JSON.stringify({ type: 'AUTH_ERROR' }));
+    ws.close(UNAUTHORIZED, 'unauthorized');
+    return;
   }
-  
+
+  clientInfo.userId = userId;
+  clientInfo.graphId = data.graphId;
+  logger.success(`Client ${clientId} subscribed to "${data.graphId}" userId="${userId}"`);
+
   // Get current graph state
-  const graph = await getGraph(data.graphId, clientInfo.userId);
+  const graph = await getGraph(data.graphId, userId);
   
   // Ensure settings are included
   if (!graph.settings) {
@@ -115,7 +153,7 @@ async function handleSubscribe(data, clientInfo, clientId, ws, getGraph, saveGra
   if (shouldResetProgress(graph)) {
     logger.info('Daily reset triggered, resetting progress...');
     resetAllProgress(graph);
-    await saveGraph(data.graphId, graph, clientInfo.userId);
+    await saveGraph(data.graphId, graph, userId);
   }
   
   // Debug: Log graph structure
@@ -134,7 +172,7 @@ async function handleSubscribe(data, clientInfo, clientId, ws, getGraph, saveGra
  * Handle OPERATION message
  */
 async function handleOperation(data, clientInfo, clientId, ws, clients, applyOperation) {
-  if (!clientInfo.graphId) {
+  if (!clientInfo.userId || !clientInfo.graphId) {
     logger.warn(`Client ${clientId} tried to send operation without subscription`);
     ws.send(JSON.stringify({
       type: 'ERROR',
@@ -184,7 +222,7 @@ async function handleOperation(data, clientInfo, clientId, ws, clients, applyOpe
  * Handle SYNC message
  */
 async function handleSync(clientInfo, ws, getGraph) {
-  if (clientInfo.graphId) {
+  if (clientInfo.userId && clientInfo.graphId) {
     const syncGraph = await getGraph(clientInfo.graphId, clientInfo.userId);
     ws.send(JSON.stringify({
       type: 'SYNC_RESPONSE',

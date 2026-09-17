@@ -1,11 +1,11 @@
 /**
- * AI Routes - Extracted from simple-server.js
- * REST API endpoints for AI planning
- * Copied from simple-server.js lines 1044-1088
+ * AI Routes
+ *
+ * The graph chat, mounted behind requireUser (server.js): the agent reads the
+ * graph of the user the request's token proves.
  */
 
 import express from 'express';
-import { DEFAULT_USER_ID } from '../services/graphService.js';
 import { clipText } from '../services/journal.js';
 
 // An inspect of a large branch runs long; the journal keeps enough to see
@@ -18,66 +18,18 @@ const router = express.Router();
  * Setup AI routes
  */
 export function setupAIRoutes({ getGraph, journal = null }) {
-  // AI Planning endpoint (dynamic import to avoid startup crash if API key missing)
-  // Copied from simple-server.js lines 1044-1088
-  router.post('/generate-plan', async (req, res) => {
-    // DIAGNOSTIC: Log that this route is being hit
-    console.log('🔍 [Server] /api/ai/generate-plan endpoint HIT');
-    console.log('🔍 [Server] Request headers:', req.headers);
-    console.log('🔍 [Server] Request body:', JSON.stringify(req.body).substring(0, 200));
-    
-    try {
-      const { messages } = req.body;
-      
-      if (!messages || !Array.isArray(messages)) {
-        console.error('🔍 [Server] Invalid request - missing messages array');
-        return res.status(400).json({
-          success: false,
-          error: 'messages array is required'
-        });
-      }
-      
-      console.log('🤖 Generating AI plan for messages:', messages.length);
-      
-      // Dynamic import - only loads when endpoint is called
-      const aiPlanningModule = await import('../ai-planning.js');
-      const aiPlanning = aiPlanningModule.default;
-      
-      // Format and send to AI
-      const formattedMessages = aiPlanning.formatMessagesForAPI(messages);
-      const response = await aiPlanning.sendMessageToAI(formattedMessages);
-      
-      console.log('🔍 [Server] Sending successful response');
-      res.json({
-        success: true,
-        response
-      });
-    } catch (error) {
-      console.error('🔍 [Server] AI planning error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      console.error('❌ AI planning error:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  });
-
   /**
    * Graph chat - one streaming turn.
    *
-   * Server-sent events over POST rather than EventSource: the request carries
-   * the current graph, which is too big for a query string.
+   * Server-sent events over POST rather than EventSource: EventSource can
+   * send neither a body nor the Authorization header.
    *
    * Nothing here applies a change. The response is a proposal the editor
    * shows for confirmation.
    */
   router.post('/chat', async (req, res) => {
     const { messages, currentPath, graphId } = req.body || {};
-    const userId = req.headers['x-user-id'] || DEFAULT_USER_ID;
+    const userId = req.userId;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ success: false, error: 'messages array is required' });
@@ -147,8 +99,6 @@ export function setupAIRoutes({ getGraph, journal = null }) {
     }
   });
 
-  // DIAGNOSTIC: Log that the route has been registered
-  console.log('🔍 [Server] AI Planning route registered at POST /api/ai/generate-plan');
   console.log('🔍 [Server] AI chat route registered at POST /api/ai/chat');
 
   return router;

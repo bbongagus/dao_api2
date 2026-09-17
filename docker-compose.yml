@@ -30,6 +30,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # NODE_ENV=production refuses a dev key: this container trusts Auth0.
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      - AUTH_AUDIENCE=${AUTH_AUDIENCE}
       - APP_URL=${APP_URL:-http://localhost:3000}
     depends_on:
       redis:
@@ -49,7 +52,6 @@ services:
       # Монтируем скрипты для ручного запуска
       - ./reset-repeatable-nodes.js:/app/reset-repeatable-nodes.js:ro
       - ./trigger-daily-reset.js:/app/trigger-daily-reset.js:ro
-      - ./trigger-snapshot.js:/app/trigger-snapshot.js:ro
 
 networks:
   optimistic-network:

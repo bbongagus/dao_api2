@@ -12,8 +12,9 @@
     "docker:logs": "docker-compose -f docker-compose.yml logs -f",
     "docker:build": "docker-compose -f docker-compose.yml build",
     "test": "node --test \"src/**/*.test.js\"",
-    "test:snapshots": "node test-snapshots.js",
-    "journal": "node --env-file-if-exists=.env scripts/journal.js"
+    "journal": "node --env-file-if-exists=.env scripts/journal.js",
+    "auth:dev-keys": "node scripts/auth-dev-keys.js",
+    "token": "node --env-file-if-exists=.env scripts/token.js"
   },
   "keywords": [
     "optimistic-ui",
@@ -30,6 +31,7 @@
     "cron": "^3.1.6",
     "express": "^4.18.2",
     "ioredis": "^5.3.2",
+    "jose": "^6.2.12",
     "node-fetch": "^3.3.2",
     "uuid": "^9.0.1",
     "ws": "^8.14.2",
