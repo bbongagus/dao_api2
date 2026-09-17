@@ -76,6 +76,9 @@ export async function buildSourceBrief(client, model, messages, { maxTurns = 4, 
       const response = await client.messages.create({
         model,
         max_tokens: 8000,
+        // A paused turn resumes with everything fetched so far appended; this
+        // keeps the continuation from re-billing it.
+        cache_control: { type: 'ephemeral' },
         system: BRIEF_SYSTEM_PROMPT,
         messages: turns,
         tools: [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 }],

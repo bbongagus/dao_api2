@@ -426,3 +426,53 @@ test('a turn that failed still reports what it spent before failing', async () =
   assert.equal(turn.usage.calls, 1, 'the iteration that ran before the failure is billed');
   assert.ok(turn.usage.dollars > 0);
 });
+
+// --- caching ---
+
+test('the loop asks for the growing conversation to be cached, not only the system prompt', async () => {
+  let sent = null;
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          sent = params;
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+
+  await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+
+  // The system prefix keeps its own guaranteed read point...
+  assert.deepEqual(sent.system.at(-1).cache_control, { type: 'ephemeral' });
+  // ...and the top-level marker moves with the tail, so iteration N reads what
+  // iteration N-1 wrote instead of re-billing the whole history uncached.
+  assert.deepEqual(sent.cache_control, { type: 'ephemeral' });
+});
+
+test('nothing in the cached prefix changes between iterations of one turn', async () => {
+  const seen = [];
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          seen.push(JSON.stringify({ system: params.system, tools: params.tools.map((t) => t.name), model: params.model }));
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+
+  const run = () => runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+  await run();
+  await run();
+
+  assert.equal(seen[0], seen[1], 'system, tool order and model must be byte-identical or the cache never reads');
+});

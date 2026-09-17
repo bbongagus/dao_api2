@@ -292,6 +292,12 @@ export async function runGraphAgent({
       model,
       max_tokens: MAX_TOKENS,
       max_iterations: MAX_ITERATIONS,
+      // The robust pair for an agent loop. The explicit marker gives the
+      // system prompt a read point that survives whatever happens in
+      // `messages`; the top-level one follows the tail as the loop appends
+      // tool calls and results, so iteration N reads what N-1 wrote. Without
+      // it every one of up to twelve iterations re-billed the whole history.
+      cache_control: { type: 'ephemeral' },
       system: [
         { type: 'text', text: AGENT_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
       ],
