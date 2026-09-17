@@ -10,8 +10,8 @@
 import express from 'express';
 import dailyCompletions from '../services/dailyCompletions.js';
 import { broadcastToGraph } from '../handlers/broadcast.js';
+import { createGraphQueue } from '../handlers/graphQueue.js';
 
-const router = express.Router();
 
 /**
  * Setup graph routes with dependencies
@@ -19,6 +19,14 @@ const router = express.Router();
  */
 export function setupGraphRoutes(deps) {
   const { getGraph, saveGraph, clients } = deps;
+  // server.js passes the same queue the WebSocket operations use. A queue of
+  // its own would still stop two saves colliding, but not a save colliding
+  // with an operation — which is the case that loses work.
+  const graphQueue = deps.graphQueue ?? createGraphQueue();
+
+  // Per call, not per module: a module-level router accumulates the handlers of
+  // every setup and answers them all with the first one's dependencies.
+  const router = express.Router();
 
   // Get graph
   // Copied from simple-server.js lines 762-782
@@ -52,18 +60,24 @@ export function setupGraphRoutes(deps) {
       console.log(`📝 REST API: Saving graph ${graphId} for user ${userId}`);
       console.log(`   Nodes: ${req.body.nodes?.length || 0}, Edges: ${req.body.edges?.length || 0}`);
 
-      const graph = await getGraph(graphId, userId);
+      // Read-modify-write, so it belongs in the graph's queue like every other
+      // one. Outside it, this read could see a graph mid-operation and the
+      // write then replace whatever that operation saved: the body is a whole
+      // graph, not a patch, so the loss is silent and total.
+      const { updatedGraph, saved } = await graphQueue.enqueue(`${userId}:${graphId}`, async () => {
+        const graph = await getGraph(graphId, userId);
 
-      // Merge with existing data
-      const updatedGraph = {
-        ...graph,
-        nodes: req.body.nodes || graph.nodes,
-        edges: req.body.edges || graph.edges,
-        viewport: req.body.viewport || graph.viewport,
-        settings: req.body.settings || graph.settings || {} // Include settings from request
-      };
+        // Merge with existing data
+        const merged = {
+          ...graph,
+          nodes: req.body.nodes || graph.nodes,
+          edges: req.body.edges || graph.edges,
+          viewport: req.body.viewport || graph.viewport,
+          settings: req.body.settings || graph.settings || {} // Include settings from request
+        };
 
-      const saved = await saveGraph(graphId, updatedGraph, userId);
+        return { updatedGraph: merged, saved: await saveGraph(graphId, merged, userId) };
+      });
 
       if (saved) {
         console.log(`✅ REST API: Graph ${graphId} saved successfully`);
@@ -154,4 +168,3 @@ export function setupGraphRoutes(deps) {
   return router;
 }
 
-export default router;
