@@ -39,4 +39,6 @@ const lines = [
 
 const separator = existing && !existing.endsWith('\n') ? '\n' : '';
 fs.appendFileSync(ENV_FILE, `${separator}${lines.join('\n')}\n`, { mode: 0o600 });
+// The mode option is ignored for existing files; chmod to ensure the private key is owner-only.
+fs.chmodSync(ENV_FILE, 0o600);
 console.log(`Wrote AUTH_DEV_PUBLIC_KEY, AUTH_DEV_PRIVATE_KEY${has('AUTH_AUDIENCE') ? '' : ' and AUTH_AUDIENCE'} to .env`);
