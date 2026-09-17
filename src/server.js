@@ -17,6 +17,11 @@ import { CronJob } from 'cron';
 // Import Redis client
 import redis from './redis.js';
 
+// Authentication
+import { readAuthConfig } from './auth/config.js';
+import { createTokenVerifier } from './auth/verifyToken.js';
+import { createRequireUser } from './auth/requireUser.js';
+
 // Import services
 import SimplifiedAnalytics from './analytics-v2.js';
 import progressSnapshots from './progress-snapshots.js';
@@ -39,9 +44,17 @@ import { setupAIRoutes } from './routes/aiRoutes.js';
 // Import logger
 import { logger } from './utils/logger.js';
 
+// Whom this process believes about who is asking. A missing or contradictory
+// configuration throws here, and the server does not start.
+const authConfig = readAuthConfig(process.env);
+const verifyToken = createTokenVerifier(authConfig);
+
 // Initialize Express app
 const app = express();
+// cors() answers preflight requests itself, so they never reach requireUser.
 app.use(cors());
+// Ahead of the body parser: a request that proves no user is not worth parsing.
+app.use('/api', createRequireUser(verifyToken));
 app.use(express.json());
 
 // Initialize HTTP server
@@ -273,6 +286,7 @@ server.listen(PORT, () => {
 ║   NodeIndex: O(1) lookups enabled     ║
 ╚═══════════════════════════════════════╝
   `);
+  logger.info(`🔐 Trusting tokens from ${authConfig.issuer} for ${authConfig.audience}`);
 });
 
 // Graceful shutdown
