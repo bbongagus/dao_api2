@@ -20,7 +20,7 @@ import { createTokenVerifier } from './auth/verifyToken.js';
 import { createRequireUser } from './auth/requireUser.js';
 
 // Import services
-import { runHabitCounter } from './services/dailyHabitCounter.js';
+import { runHabitCounter, habitCounterEnabled } from './services/dailyHabitCounter.js';
 import { scanGraphKeys } from './services/graphKeys.js';
 import { broadcastToGraph } from './handlers/broadcast.js';
 import { getNodeIndex } from './services/nodeIndex.js';
@@ -192,8 +192,9 @@ async function readGraph(graphId, userId) {
   return raw === null ? { nodes: [], edges: [] } : JSON.parse(raw);
 }
 
-// Count yesterday's ticked habits for every user at midnight. HABIT_COUNTER_CRON
-// lets a rehearsal run it every few seconds instead of waiting for midnight.
+// Count yesterday's ticked habits for every user at midnight. The job runs
+// only with HABIT_COUNTER_ENABLED=true. HABIT_COUNTER_CRON lets a rehearsal
+// run it every few seconds instead of waiting for midnight.
 const habitCounterJob = CronJob.from({
   cronTime: process.env.HABIT_COUNTER_CRON || '0 0 * * *',
   // A slow run must not overlap the next and count a day twice.
@@ -214,9 +215,11 @@ const habitCounterJob = CronJob.from({
       logger.error('🌙 Daily habit counter failed:', error);
     }
   },
-  start: true,
+  start: habitCounterEnabled(process.env),
   timeZone: 'Europe/Belgrade',
 });
+
+if (!habitCounterJob.running) logger.info('🌙 Habit counter off (HABIT_COUNTER_ENABLED is not "true")');
 
 // Start server
 const PORT = process.env.PORT || 3001;

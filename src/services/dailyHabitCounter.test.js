@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { habitUpdates, runHabitCounter } from './dailyHabitCounter.js';
+import { habitUpdates, runHabitCounter, habitCounterEnabled } from './dailyHabitCounter.js';
 
 const node = (id, extra = {}) => ({
   id, title: id, nodeType: 'dao', nodeSubtype: 'simple', isDone: false, children: [], ...extra,
@@ -135,4 +135,11 @@ test('a graph that fails does not stop the others', async () => {
   assert.equal(h.applied.length, 1);
   assert.equal(h.applied[0].userId, 'bob');
   assert.match(h.errors[0], /alice:main/);
+});
+
+test('the habit counter is off unless HABIT_COUNTER_ENABLED is exactly "true"', () => {
+  assert.equal(habitCounterEnabled({}), false);
+  assert.equal(habitCounterEnabled({ HABIT_COUNTER_ENABLED: 'false' }), false);
+  assert.equal(habitCounterEnabled({ HABIT_COUNTER_ENABLED: '1' }), false);
+  assert.equal(habitCounterEnabled({ HABIT_COUNTER_ENABLED: 'true' }), true);
 });

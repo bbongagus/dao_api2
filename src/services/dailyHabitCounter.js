@@ -14,6 +14,12 @@
 
 import { logger } from '../utils/logger.js';
 
+/**
+ * Kata were switched off on 2026-09-18, and with them the counter. It runs
+ * only where it is asked for, so bringing Kata back is one variable.
+ */
+export const habitCounterEnabled = (env) => env.HABIT_COUNTER_ENABLED === 'true';
+
 export function habitUpdates(graph) {
   const updates = [];
   const walk = (nodes) => {
