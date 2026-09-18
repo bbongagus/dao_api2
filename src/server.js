@@ -25,7 +25,7 @@ import { scanGraphKeys } from './services/graphKeys.js';
 import { broadcastToGraph } from './handlers/broadcast.js';
 import { getNodeIndex } from './services/nodeIndex.js';
 import { createJournal } from './services/journal.js';
-import { createSpendLedger } from './ai/spend.js';
+import { createSpendLedger, ledgerLimits } from './ai/spend.js';
 import { healthReport } from './health.js';
 import { corsOptions } from './corsPolicy.js';
 
@@ -74,10 +74,7 @@ const journal = createJournal(redis);
 // What one person, and everyone together, may spend on AI in a calendar month.
 // Both are dollars of real API cost. The defaults are deliberately small: the
 // beta is friends, and sign-up is open to anyone who finds the URL.
-const ledger = createSpendLedger(redis, {
-  userQuota: Number(process.env.AI_USER_MONTHLY_QUOTA_USD ?? 2),
-  globalCap: Number(process.env.AI_GLOBAL_MONTHLY_CAP_USD ?? 25),
-});
+const ledger = createSpendLedger(redis, ledgerLimits());
 
 /**
  * Redis Operations - Core data access

@@ -29,13 +29,46 @@ export function spendPeriod(at = new Date()) {
  */
 export const DEFAULT_NAMESPACE = 'ai:spend';
 
+const DEFAULT_USER_QUOTA = 2;
+const DEFAULT_GLOBAL_CAP = 25;
+
+/** A limit in dollars: finite and not negative. Zero is allowed and means "none". */
+function dollarsFrom(name, raw, fallback) {
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative number of dollars, not "${raw}"`);
+  }
+  return value;
+}
+
+/**
+ * The monthly limits, from the environment. Throws on anything that is not a
+ * plain non-negative number, so a typo stops the server at boot: `Number('two')`
+ * is NaN, `NaN <= 0` is false, and a NaN quota would never read as exhausted.
+ */
+export function ledgerLimits(env = process.env) {
+  return {
+    userQuota: dollarsFrom('AI_USER_MONTHLY_QUOTA_USD', env.AI_USER_MONTHLY_QUOTA_USD, DEFAULT_USER_QUOTA),
+    globalCap: dollarsFrom('AI_GLOBAL_MONTHLY_CAP_USD', env.AI_GLOBAL_MONTHLY_CAP_USD, DEFAULT_GLOBAL_CAP),
+  };
+}
+
 /**
  * @param {import('ioredis').Redis} redis
  * @param {{ userQuota: number, globalCap: number, namespace?: string }} limits — dollars per month.
  */
 export function createSpendLedger(redis, { userQuota, globalCap, namespace = DEFAULT_NAMESPACE }) {
+  // Checked here too, for any caller that does not go through ledgerLimits.
+  for (const [name, value] of [['userQuota', userQuota], ['globalCap', globalCap]]) {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a finite, non-negative number`);
+  }
+
   const userKey = (userId, period) => `${namespace}:user:${userId}:${period}`;
   const globalKey = (period) => `${namespace}:global:${period}`;
+  // Extra allowance for one person for one month. Kept apart from spend so
+  // spend stays exactly what Anthropic billed, whatever was granted on top.
+  const grantKey = (userId, period) => `${namespace}:grant:${userId}:${period}`;
   /** Both counters move together, so a turn is never charged to one and not the other. */
   async function record(userId, dollars, at = new Date()) {
     if (!(dollars > 0)) return;
@@ -51,20 +84,39 @@ export function createSpendLedger(redis, { userQuota, globalCap, namespace = DEF
 
   async function spent(userId, at = new Date()) {
     const period = spendPeriod(at);
-    const [mine, everyone] = await redis.mget(userKey(userId, period), globalKey(period));
-    return { user: Number(mine) || 0, global: Number(everyone) || 0, period };
+    const [mine, everyone, granted] = await redis.mget(
+      userKey(userId, period), globalKey(period), grantKey(userId, period),
+    );
+    return { user: Number(mine) || 0, global: Number(everyone) || 0, granted: Number(granted) || 0, period };
   }
 
-  /** What is left, floored at zero: an overshoot is not a debt to carry forward. */
+  /**
+   * What is left, floored at zero: an overshoot is not a debt to carry forward.
+   * A grant raises this person's allowance and nobody else's; it never lifts
+   * the global cap, which is the one number that bounds the whole bill.
+   */
   async function remaining(userId, at = new Date()) {
     const used = await spent(userId, at);
+    const allowance = userQuota + used.granted;
     return {
-      user: Math.max(0, userQuota - used.user),
+      user: Math.max(0, allowance - used.user),
       global: Math.max(0, globalCap - used.global),
       period: used.period,
-      userQuota,
+      userQuota: allowance,
       globalCap,
     };
+  }
+
+  /** Top someone up for the month `at` falls in. Used by scripts/ai-topup.js. */
+  async function grant(userId, dollars, at = new Date()) {
+    if (!(Number.isFinite(dollars) && dollars > 0)) {
+      throw new Error(`a grant must be a positive amount of dollars, not ${dollars}`);
+    }
+    const key = grantKey(userId, spendPeriod(at));
+    const pipeline = redis.pipeline();
+    pipeline.incrbyfloat(key, dollars);
+    pipeline.expire(key, KEEP_SECONDS);
+    await pipeline.exec();
   }
 
   /**
@@ -78,5 +130,5 @@ export function createSpendLedger(redis, { userQuota, globalCap, namespace = DEF
     return { allowed: true, ...left };
   }
 
-  return { record, remaining, check, spent };
+  return { record, remaining, check, spent, grant };
 }

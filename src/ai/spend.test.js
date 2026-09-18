@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Redis from 'ioredis';
 
-import { createSpendLedger, spendPeriod } from './spend.js';
+import { createSpendLedger, spendPeriod, ledgerLimits } from './spend.js';
 
 /** Money never compares exactly after a round trip through Redis. */
 const near = (actual, expected, what) =>
@@ -130,4 +130,89 @@ test("a month's counters expire, so old months do not pile up in Redis", needsRe
   const ttl = await redis.ttl(`${namespace}:user:${user}:${spendPeriod()}`);
 
   assert.ok(ttl > 0, `expected an expiry, got ttl=${ttl}`);
+});
+
+// --- topping someone up ---
+
+test('a grant raises one person\'s allowance for the month, and nobody else\'s', needsRedis, async (t) => {
+  const { ledger, track } = ledgerFor(t);
+  const lucky = track(someone());
+  const other = track(someone());
+
+  await ledger.record(lucky, 2);
+  assert.equal((await ledger.check(lucky)).allowed, false, 'out of quota before the grant');
+
+  await ledger.grant(lucky, 3);
+
+  near((await ledger.remaining(lucky)).user, 3, 'the grant is on top of a spent quota');
+  assert.equal((await ledger.check(lucky)).allowed, true);
+  near((await ledger.remaining(other)).user, 2, 'someone else is untouched');
+});
+
+test('a grant does not rewrite what was spent — the spend stays the truth', needsRedis, async (t) => {
+  const { ledger, track } = ledgerFor(t);
+  const user = track(someone());
+
+  await ledger.record(user, 1.5);
+  await ledger.grant(user, 5);
+
+  near((await ledger.spent(user)).user, 1.5, 'spend is what Anthropic billed, whatever was granted');
+});
+
+test('a grant does not lift the global cap', needsRedis, async (t) => {
+  const { ledger, track } = ledgerFor(t, { globalCap: 1 });
+  const user = track(someone());
+
+  await ledger.record(user, 1);
+  await ledger.grant(user, 10);
+
+  assert.equal((await ledger.check(user)).scope, 'global');
+});
+
+test('a grant belongs to its month', needsRedis, async (t) => {
+  const { ledger, track } = ledgerFor(t);
+  const user = track(someone());
+
+  await ledger.grant(user, 4, new Date('2026-09-10T00:00:00Z'));
+
+  near((await ledger.remaining(user, new Date('2026-10-02T00:00:00Z'))).user, 2, 'October starts from the plain quota');
+});
+
+test('a grant that is not a positive amount is refused', needsRedis, async (t) => {
+  const { ledger, track } = ledgerFor(t);
+  const user = track(someone());
+
+  await assert.rejects(ledger.grant(user, 0), /positive/);
+  await assert.rejects(ledger.grant(user, -5), /positive/);
+  await assert.rejects(ledger.grant(user, Number.NaN), /positive/);
+});
+
+// --- where the limits come from ---
+
+test('the limits default to a small quota and a small cap', () => {
+  assert.deepEqual(ledgerLimits({}), { userQuota: 2, globalCap: 25 });
+});
+
+test('the limits are read from the environment', () => {
+  assert.deepEqual(
+    ledgerLimits({ AI_USER_MONTHLY_QUOTA_USD: '0.5', AI_GLOBAL_MONTHLY_CAP_USD: '100' }),
+    { userQuota: 0.5, globalCap: 100 },
+  );
+});
+
+test('a mistyped limit stops the server rather than opening the tap', () => {
+  // Number('two') is NaN, and NaN <= 0 is false — so a NaN quota never reads
+  // as exhausted, and every turn would have been allowed for ever.
+  assert.throws(() => ledgerLimits({ AI_USER_MONTHLY_QUOTA_USD: 'two' }), /AI_USER_MONTHLY_QUOTA_USD/);
+  assert.throws(() => ledgerLimits({ AI_GLOBAL_MONTHLY_CAP_USD: '25$' }), /AI_GLOBAL_MONTHLY_CAP_USD/);
+  assert.throws(() => ledgerLimits({ AI_USER_MONTHLY_QUOTA_USD: '-1' }), /AI_USER_MONTHLY_QUOTA_USD/);
+  assert.throws(() => ledgerLimits({ AI_GLOBAL_MONTHLY_CAP_USD: 'Infinity' }), /AI_GLOBAL_MONTHLY_CAP_USD/);
+});
+
+test('zero is a legitimate limit: AI switched off for everyone', () => {
+  assert.deepEqual(ledgerLimits({ AI_GLOBAL_MONTHLY_CAP_USD: '0' }), { userQuota: 2, globalCap: 0 });
+});
+
+test('a ledger itself refuses a limit that is not a number', () => {
+  assert.throws(() => createSpendLedger({}, { userQuota: Number.NaN, globalCap: 25 }), /userQuota/);
 });
