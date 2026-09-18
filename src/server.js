@@ -36,6 +36,7 @@ import { createOperationHandler, graphQueue } from './handlers/operationHandler.
 // Import routes
 import { setupGraphRoutes } from './routes/graphRoutes.js';
 import { setupAIRoutes } from './routes/aiRoutes.js';
+import { setupOnboardingRoutes } from './routes/onboardingRoutes.js';
 
 // Import logger
 import { logger } from './utils/logger.js';
@@ -178,6 +179,7 @@ setupWebSocketHandler({
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients, graphQueue }));
 app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger }));
+app.use('/api', setupOnboardingRoutes({ redis }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
