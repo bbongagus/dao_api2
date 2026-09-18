@@ -11,15 +11,19 @@ import { KIND_LIST } from './graphWriteTools.js';
 
 export const KIND_GLOSS = {
   dao: 'a concrete task, done once',
-  kata: 'a habit with a target count',
-  'kata-infinity': 'an ongoing habit with no end',
   ryu: 'a section; averages the milestones inside it, plus any task none of them counts',
   kai: 'an independent direction; averages everything reachable to its right',
   mi: 'closes a stage; averages the work since the previous Mi',
 };
 
-export const AGENT_SYSTEM_PROMPT = `You work on a person's graph of goals and habits in the DAO editor, through tools.
+export const AGENT_SYSTEM_PROMPT = `You work on a person's graph of goals and tasks in the DAO editor, through tools.
 ${GRAPH_SEMANTICS}
+
+## What the person calls the kinds
+
+The editor shows the kinds under plain names. In anything you write for the
+person, call a dao a Task, a ryu a Group, a kai a Track and a mi a
+Milestone. Tool calls keep the kind names below.
 
 ## Nesting versus linking
 
@@ -103,9 +107,8 @@ If a tool refuses, it will say why. Take the reason seriously:
 Propose something else instead of trying again.
 
 When what is asked would break one of the progress rules above — a lone task
-beside a large branch, an endless habit under a milestone, a milestone
-pointed at a milestone — do it the way that keeps the rollup honest and say
-so in a clause.
+beside a large branch, a milestone pointed at a milestone — do it the way
+that keeps the rollup honest and say so in a clause.
 
 ## Finishing
 

@@ -15,14 +15,13 @@ import { buildLinkIndex } from './links.js';
 const SHORT_DESCRIPTION = 120;
 
 /**
- * The six kinds, named the way the agent names them. This is the only
+ * The four kinds, named the way the agent names them. This is the only
  * hand-written copy: the reverse lookup below is derived, so the two cannot
- * drift apart and mislabel a node.
+ * drift apart and mislabel a node. Kata (repeatable) was switched off on
+ * 2026-09-18; a stored one reads as a dao through kindNameOf's fallback.
  */
 export const KIND_TO_TYPES = {
   dao: { nodeType: 'dao', nodeSubtype: 'simple' },
-  kata: { nodeType: 'repeatable', nodeSubtype: 'bounded' },
-  'kata-infinity': { nodeType: 'repeatable', nodeSubtype: 'infinity' },
   ryu: { nodeType: 'fundamental', nodeSubtype: 'category' },
   kai: { nodeType: 'fundamental', nodeSubtype: 'downstream' },
   mi: { nodeType: 'fundamental', nodeSubtype: 'upstream' },

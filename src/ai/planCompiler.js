@@ -22,7 +22,6 @@ export const ROW = 160;
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 const list = (value) => (Array.isArray(value) ? value : []);
 const ids = (value) => [...new Set(list(value).map(text).filter(Boolean))];
-const repeatOf = (step) => (Number.isFinite(step.repeat) ? Math.floor(step.repeat) : 0);
 
 /** Every id after the ids it depends on; null when they form a circle. */
 function topoOrder(all, dependsOn) {
@@ -104,9 +103,6 @@ export function compilePlan(plan, { nodes = [], aliases }) {
       seen.add(stepId);
       if (!text(step.title)) return { error: `Step ${stepId} in stage ${id} needs a title.` };
       const checklist = list(step.checklist).map(text).filter(Boolean);
-      if (checklist.length && repeatOf(step) > 1) {
-        return { error: `Step ${stepId} is both a checklist and repeated. Make it one or the other.` };
-      }
       if (!stageOfStep.has(stepId)) stageOfStep.set(stepId, id);
       nodeCount += 1 + checklist.length;
     }
@@ -203,16 +199,14 @@ export function compilePlan(plan, { nodes = [], aliases }) {
       const alias = stepAlias(id, sid);
       const col = column.get(alias);
       const checklist = list(step.checklist).map(text).filter(Boolean);
-      const repeat = repeatOf(step);
       const kind = checklist.length
         ? { nodeType: 'dao', nodeSubtype: 'withChildren' }
-        : repeat > 1 ? KIND_TO_TYPES.kata : KIND_TO_TYPES.dao;
+        : KIND_TO_TYPES.dao;
 
       operations.push({
         op: 'add', alias, parent, title: text(step.title), description: text(step.description),
         ...kind,
         x: col * COLUMN, y: baseY + (rowOffset + nextRow(col)) * ROW, downstream: [],
-        ...(repeat > 1 && !checklist.length ? { requiredCompletions: repeat } : {}),
       });
       checklist.forEach((item, i) => operations.push({
         op: 'add', alias: `${alias}:${i + 1}`, parent: alias, title: item, description: '',

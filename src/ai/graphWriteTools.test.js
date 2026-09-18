@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildAliasTable } from './aliases.js';
-import { createWriteTools } from './graphWriteTools.js';
+import { createWriteTools, KIND_LIST } from './graphWriteTools.js';
 
 const n = (id, title, extra = {}) => ({
   id, title, nodeType: 'dao', nodeSubtype: 'simple',
@@ -47,13 +47,14 @@ test('add under a parent records the parent as a real id', () => {
   assert.equal(staged[0].parent, 'health');
 });
 
-test('kata-infinity maps onto the repeatable pair', () => {
+test('kata is no longer a kind the agent can use', () => {
   const { tools, staged } = make();
 
-  tools.add({ alias: 'water', parent: '', title: 'Пить воду', description: '', kind: 'kata-infinity', x: 0, y: 0 });
+  const said = tools.add({ alias: 'water', parent: '', title: 'Пить воду', description: '', kind: 'kata-infinity', x: 0, y: 0 });
 
-  assert.equal(staged[0].nodeType, 'repeatable');
-  assert.equal(staged[0].nodeSubtype, 'infinity');
+  assert.match(said, /not a kind I know/);
+  assert.equal(staged.length, 0);
+  assert.deepEqual(KIND_LIST, ['dao', 'ryu', 'kai', 'mi']);
 });
 
 test('an unknown kind is refused, not guessed at', () => {

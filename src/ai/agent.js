@@ -257,7 +257,6 @@ export async function runGraphAgent({
             description: z.string(),
             after: z.array(z.string()).describe('ids of steps in this same stage that must be done first'),
             checklist: z.array(z.string()).describe('Items to tick inside this step, or [] for none'),
-            repeat: z.number().describe('How many times it must be done; 0 for once'),
           })),
         })),
       }),

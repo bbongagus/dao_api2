@@ -68,14 +68,14 @@ test('a step with a checklist holds its items inside', () => {
   assert.equal(add(r, 'plan:s:pack:2').title, 'Свидетельство');
 });
 
-test('a repeated step is a kata with its target', () => {
+test('a step done several times is one task; the count goes in its description', () => {
   const r = compile(inNewSection([
     stage('s', 'Форма', [step('run', 'Пробежка', { repeat: 12 })]),
   ]));
 
-  assert.equal(add(r, 'plan:s:run').nodeType, 'repeatable');
-  assert.equal(add(r, 'plan:s:run').nodeSubtype, 'bounded');
-  assert.equal(add(r, 'plan:s:run').requiredCompletions, 12);
+  assert.equal(add(r, 'plan:s:run').nodeType, 'dao');
+  assert.equal(add(r, 'plan:s:run').nodeSubtype, 'simple');
+  assert.equal(add(r, 'plan:s:run').requiredCompletions, undefined);
 });
 
 // --- arrows
@@ -252,12 +252,6 @@ test('a step id containing a colon is refused', () => {
 
 test('a stage id of "section" is refused, since that alias is reserved for the section itself', () => {
   assert.match(refused(inNewSection([stage('section', 'A', [step('x', 'X')])])), /reserved/);
-});
-
-test('a step that is both a checklist and repeated is refused', () => {
-  assert.match(refused(inNewSection([
-    stage('a', 'A', [step('x', 'X', { checklist: ['one'], repeat: 3 })]),
-  ])), /one or the other/);
 });
 
 test('a plan over forty nodes is refused', () => {

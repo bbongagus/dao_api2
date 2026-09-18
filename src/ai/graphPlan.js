@@ -19,10 +19,8 @@ now something that is not.
 - dao/simple - a concrete task. Progress is 0 or 1: done or not.
 - dao/withChildren - a step with a checklist inside. Progress is the share of
   the checklist done.
-- repeatable/bounded - a habit with a target count. Progress is
-  completed / target, so it moves gradually.
-- repeatable/infinity - an ongoing habit with no end. Progress is 1 only on a
-  day it was ticked, and 0 otherwise.
+  Something to be done several times is still one task: put the count in
+  its description ("12 runs over four weeks").
 - fundamental/upstream (Mi) - closes a stage. Progress is the work since the
   previous Mi: it walks left and stops at the previous Mi, or at a Kai,
   without counting either.
@@ -48,10 +46,6 @@ section reports the average of the stages.
 A Kai counts everything to its right, so keep it for a direction that depends
 on nothing else and that nothing else depends on. Never run a Kai into
 another stage or point it at another Kai: it would count that work too.
-
-Keep repeatable/infinity out of any stage or section that is meant to finish.
-It reads as 0 on any day it has not been ticked, which would drag progress
-down every morning. Ongoing habits belong on their own.
 
 ## Descriptions
 

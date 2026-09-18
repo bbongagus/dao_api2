@@ -113,3 +113,11 @@ test('the prompt no longer teaches a hand-linked sequence toward a milestone', (
 test('the semantics say a Kai also stops a Mi\'s walk', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /or at a Kai/);
 });
+
+test('the prompt names the kinds the way the person sees them', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /Task/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Group/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Track/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Milestone/);
+  assert.doesNotMatch(AGENT_SYSTEM_PROMPT, /kata|repeatable/i);
+});
