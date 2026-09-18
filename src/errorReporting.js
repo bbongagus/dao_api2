@@ -4,7 +4,8 @@
  * Off unless SENTRY_DSN is set. Errors only: tracing in ESM needs
  * `node --import`, which would change the start command railway.json pins.
  * Request bodies, headers and console breadcrumbs carry node titles, so they
- * never leave. See docs/superpowers/specs/2026-09-18-telemetry-design.md.
+ * never leave. See the telemetry design (workspace repo,
+ * docs/superpowers/specs/2026-09-18-telemetry-design.md).
  */
 import * as Sentry from '@sentry/node';
 
@@ -14,6 +15,11 @@ export function scrubEvent(event) {
     delete event.request.cookies;
     delete event.request.headers;
     delete event.request.query_string;
+    if (typeof event.request.url === 'string') {
+      // Sentry's request-data integration fills this from the raw Node
+      // req.url, query string and all — strip it, keep scheme/host/path.
+      event.request.url = event.request.url.split(/[?#]/)[0];
+    }
   }
   if (event.user) {
     event.user = event.user.id ? { id: event.user.id } : undefined;
