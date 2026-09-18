@@ -8,8 +8,8 @@
  * keeps another site from making a signed-in person's browser act for it.
  */
 
-/** Vercel gives every preview deployment of the frontend a fresh hostname. */
-const PREVIEW = /^https:\/\/graphy-[a-z0-9]+-bbongagus-projects\.vercel\.app$/;
+/** Vercel gives every preview a fresh hostname — by hash, or by branch (with hyphens). */
+const PREVIEW = /^https:\/\/graphy-[a-z0-9-]+-bbongagus-projects\.vercel\.app$/;
 
 const FALLBACK = [
   'https://graphy-one.vercel.app',  // production

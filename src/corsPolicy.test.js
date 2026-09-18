@@ -48,3 +48,12 @@ test('an explicit list is exact: no preview pattern comes with it', () => {
   assert.ok(isOriginAllowed('https://graphy-one.vercel.app', list));
   assert.equal(isOriginAllowed('https://graphy-abc123-bbongagus-projects.vercel.app', list), false);
 });
+
+test("a branch preview is allowed too — its hostname has hyphens in the middle", () => {
+  const list = allowedOrigins({});
+
+  assert.ok(isOriginAllowed('https://graphy-git-feat-ai-quota-bbongagus-projects.vercel.app', list));
+  // Still only this team's projects named graphy.
+  assert.equal(isOriginAllowed('https://other-git-main-bbongagus-projects.vercel.app', list), false);
+  assert.equal(isOriginAllowed('https://graphy-git-main-someone-else.vercel.app', list), false);
+});
