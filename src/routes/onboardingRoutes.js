@@ -10,6 +10,7 @@
  */
 
 import express from 'express';
+import { logger } from '../utils/logger.js';
 
 export const onboardingKey = (userId) => `user:${userId}:onboarding`;
 
@@ -93,6 +94,7 @@ export function setupOnboardingRoutes({ redis }) {
     try {
       res.json(await read(redis, req.userId));
     } catch (error) {
+      logger.error('Onboarding read failed:', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -116,6 +118,7 @@ export function setupOnboardingRoutes({ redis }) {
       await redis.set(onboardingKey(req.userId), JSON.stringify(next));
       res.json(next);
     } catch (error) {
+      logger.error('Onboarding save failed:', error);
       res.status(500).json({ error: error.message });
     }
   });

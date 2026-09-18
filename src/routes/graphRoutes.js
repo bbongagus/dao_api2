@@ -11,6 +11,7 @@ import express from 'express';
 import dailyCompletions from '../services/dailyCompletions.js';
 import { broadcastToGraph } from '../handlers/broadcast.js';
 import { createGraphQueue } from '../handlers/graphQueue.js';
+import { logger } from '../utils/logger.js';
 
 
 /**
@@ -44,6 +45,7 @@ export function setupGraphRoutes(deps) {
         graph: graph
       });
     } catch (error) {
+      logger.error('REST API load error:', error);
       res.status(500).json({
         success: false,
         error: error.message
@@ -101,7 +103,7 @@ export function setupGraphRoutes(deps) {
         throw new Error('Failed to save graph');
       }
     } catch (error) {
-      console.error(`❌ REST API save error:`, error);
+      logger.error('REST API save error:', error);
       res.status(500).json({
         success: false,
         error: error.message
@@ -131,7 +133,7 @@ export function setupGraphRoutes(deps) {
         count: completions.length
       });
     } catch (error) {
-      console.error('Failed to get daily completions:', error);
+      logger.error('Failed to get daily completions:', error);
       res.status(500).json({
         success: false,
         error: error.message
@@ -157,7 +159,7 @@ export function setupGraphRoutes(deps) {
         count: completions.length
       });
     } catch (error) {
-      console.error('Failed to get daily completions details:', error);
+      logger.error('Failed to get daily completions details:', error);
       res.status(500).json({
         success: false,
         error: error.message
