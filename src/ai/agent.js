@@ -197,7 +197,6 @@ export async function runGraphAgent({
         title: z.string().describe('Leave empty to keep it'),
         description: z.string().describe('Leave empty to keep it'),
         kind: z.string().describe('Leave empty to keep it'),
-        requiredCompletions: z.number().describe('0 to keep it'),
       }),
       run: reportedWrite(
         'update_node',

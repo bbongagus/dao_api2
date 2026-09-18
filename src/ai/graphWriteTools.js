@@ -94,7 +94,9 @@ export function createWriteTools(nodes, aliases, edges = []) {
         return `Staged: add "${operation.title}" (${kind})${where}, as ${alias}.`;
       },
 
-      update({ target, title, description, kind, requiredCompletions }) {
+      // No repetition target: only a Kata had one, and the agent no longer
+      // makes Kata (2026-09-18).
+      update({ target, title, description, kind }) {
         if (typeof target !== 'string') return 'A target must be a string.';
         const found = resolve(target);
         if (found?.error) return found.error;
@@ -110,10 +112,6 @@ export function createWriteTools(nodes, aliases, edges = []) {
           const types = KIND_TO_TYPES[kind];
           if (!types) return `${kind} is not a kind I know. Use one of: ${KIND_LIST.join(', ')}.`;
           Object.assign(operation, types);
-        }
-
-        if (Number.isFinite(requiredCompletions) && requiredCompletions > 0) {
-          operation.requiredCompletions = requiredCompletions;
         }
 
         if (Object.keys(operation).length <= 2) {

@@ -102,6 +102,15 @@ test('update that names no field is refused', () => {
   assert.match(said, /\p{L}/u);
 });
 
+test('update no longer sets a repetition target — only a Kata had one', () => {
+  const { tools, staged } = make();
+
+  const said = tools.update({ target: 'n3', requiredCompletions: 12 });
+
+  assert.equal(staged.length, 0);
+  assert.match(said, /changes nothing/);
+});
+
 test('update can change a kind', () => {
   const { tools, staged } = make();
 

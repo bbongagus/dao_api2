@@ -477,6 +477,29 @@ test('nothing in the cached prefix changes between iterations of one turn', asyn
   assert.equal(seen[0], seen[1], 'system, tool order and model must be byte-identical or the cache never reads');
 });
 
+test('update_node asks only for what a node without Kata can change', async () => {
+  let tools;
+  const final = { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} };
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          tools = params.tools;
+          return runnerOf([final]);
+        },
+      },
+    },
+  };
+
+  await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+
+  const update = tools.find((t) => t.name === 'update_node');
+  assert.deepEqual(Object.keys(update.input_schema.properties), ['target', 'title', 'description', 'kind']);
+});
+
 // --- giving up when the person leaves ---
 
 test('the caller\'s abort signal is handed to the runner', async () => {

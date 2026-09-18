@@ -198,3 +198,15 @@ test('a neutral edge is not a link', () => {
 
   assert.equal(lineOf(out, 'n1'), 'n1 [kai] Этап');
 });
+
+// Kata was switched off on 2026-09-18, and stored graphs may still hold one.
+// The agent must not see a kind it cannot name, so it reads as a task.
+test('a stored repeatable node reads as a dao in the overview', () => {
+  for (const nodeSubtype of ['bounded', 'infinity']) {
+    const nodes = [n('habit', 'Бегать по утрам', { nodeType: 'repeatable', nodeSubtype, requiredCompletions: 12 })];
+    const out = createReadTools(nodes, buildAliasTable(nodes)).overview();
+
+    assert.equal(lineOf(out, 'n1'), 'n1 [dao] Бегать по утрам');
+    assert.equal(/repeatable|kata/i.test(out), false);
+  }
+});
