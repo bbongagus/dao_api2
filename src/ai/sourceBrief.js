@@ -81,7 +81,10 @@ export async function buildSourceBrief(client, model, messages, { maxTurns = 4, 
         cache_control: { type: 'ephemeral' },
         system: BRIEF_SYSTEM_PROMPT,
         messages: turns,
-        tools: [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 }],
+        // Whatever a fetch returns is billed as input, and re-billed on every
+        // continuation of a paused turn. Without a ceiling one long page could
+        // be most of a person's month. 16k tokens is a long article.
+        tools: [{ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5, max_content_tokens: 16_000 }],
       }, { signal });
 
       onUsage(model, response.usage);

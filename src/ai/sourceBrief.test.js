@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { buildSourceBrief } from './sourceBrief.js';
 
 // --- links in the prompt ---
 
@@ -72,4 +73,46 @@ test('the brief is labelled so it is not mistaken for the person talking', async
 
   assert.notEqual(out[1].content, 'Some source text');
   assert.match(out[1].content, /Some source text/);
+});
+
+// --- what reading a link may cost ---
+
+test('a fetched page is capped, so one long page cannot become the whole bill', async () => {
+  let sent = null;
+  const client = {
+    messages: {
+      async create(params) {
+        sent = params;
+        return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'brief' }], usage: {} };
+      },
+    },
+  };
+
+  await buildSourceBrief(client, 'claude-sonnet-5', [{ role: 'user', content: 'see https://example.com/long' }]);
+
+  const fetchTool = sent.tools.find((tool) => tool.name === 'web_fetch');
+  assert.ok(fetchTool.max_content_tokens > 0, 'every fetch needs a ceiling');
+  assert.ok(fetchTool.max_content_tokens <= 32_000, `${fetchTool.max_content_tokens} tokens per page is a lot of input`);
+  assert.ok(fetchTool.max_uses <= 5);
+});
+
+test('every call the link reader makes is reported, including a paused turn resumed', async () => {
+  const reported = [];
+  let call = 0;
+  const client = {
+    messages: {
+      async create() {
+        call += 1;
+        return call === 1
+          ? { stop_reason: 'pause_turn', content: [], usage: { input_tokens: 100 } }
+          : { stop_reason: 'end_turn', content: [{ type: 'text', text: 'brief' }], usage: { input_tokens: 200 } };
+      },
+    },
+  };
+
+  await buildSourceBrief(client, 'claude-sonnet-5', [{ role: 'user', content: 'see https://example.com' }], {
+    onUsage: (model, usage) => reported.push(usage.input_tokens),
+  });
+
+  assert.deepEqual(reported, [100, 200]);
 });
