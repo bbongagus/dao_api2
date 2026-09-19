@@ -3,6 +3,15 @@
  * Replaces console.log with environment-aware logging
  */
 
+import { reportError } from '../errorReporting.js';
+
+// Every route catch, the WebSocket handler and unhandledRejection log here,
+// so this is where an error leaves for Sentry. Replaceable for tests.
+let errorReporter = reportError;
+export function setErrorReporter(reporter) {
+  errorReporter = reporter ?? reportError;
+}
+
 const DEBUG = process.env.NODE_ENV !== 'production';
 const VERBOSE = process.env.LOG_VERBOSE === 'true';
 
@@ -70,6 +79,8 @@ export const logger = {
    */
   error: (...args) => {
     console.error(`${colors.dim}[${getTimestamp()}]${colors.reset} ${colors.red}❌${colors.reset}`, ...args);
+    const error = args.find((arg) => arg instanceof Error);
+    if (error) errorReporter(error);
   },
 
   /**

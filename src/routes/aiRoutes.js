@@ -8,6 +8,7 @@
 import express from 'express';
 import { clipText } from '../services/journal.js';
 import { parseChatRequest } from '../ai/chatRequest.js';
+import { logger } from '../utils/logger.js';
 
 // An inspect of a large branch runs long; the journal keeps enough to see
 // what the agent was looking at.
@@ -142,7 +143,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
 
       if (!aborted) emit({ type: 'result', result });
     } catch (error) {
-      console.error('❌ AI chat error:', error);
+      logger.error('AI chat error:', error);
       result = { type: 'error', message: error.message || 'AI chat failed' };
       if (!aborted) emit(result);
     } finally {
@@ -158,7 +159,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
         try {
           await ledger.record(userId, dollars);
         } catch (error) {
-          console.error('Failed to record AI spend — the turn is unbilled:', error);
+          logger.error('Failed to record AI spend — the turn is unbilled:', error);
         }
       }
 

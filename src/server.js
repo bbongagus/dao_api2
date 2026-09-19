@@ -41,6 +41,12 @@ import { setupOnboardingRoutes } from './routes/onboardingRoutes.js';
 // Import logger
 import { logger } from './utils/logger.js';
 
+// Errors to Sentry
+import { initErrorReporting, attachExpressErrorHandler } from './errorReporting.js';
+
+// Off unless SENTRY_DSN is set; see errorReporting.js.
+const errorReportingOn = initErrorReporting();
+
 // Whom this process believes about who is asking. A missing or contradictory
 // configuration throws here, and the server does not start.
 const authConfig = readAuthConfig(process.env);
@@ -187,6 +193,8 @@ app.get('/health', (req, res) => {
   res.status(status).json(body);
 });
 
+attachExpressErrorHandler(app);
+
 // The counter needs no index; reading through getGraph would repoint the
 // shared NodeIndex at a copy the queue is not working on.
 async function readGraph(graphId, userId) {
@@ -237,6 +245,7 @@ server.listen(PORT, () => {
 ╚═══════════════════════════════════════╝
   `);
   logger.info(`🔐 Trusting tokens from ${authConfig.issuer} for ${authConfig.audience}`);
+  logger.info(errorReportingOn ? 'Error reporting on (Sentry)' : 'Error reporting off — SENTRY_DSN unset');
 });
 
 // Graceful shutdown.
@@ -269,8 +278,11 @@ process.on('SIGINT', () => shutDown('SIGINT'));
 
 // A rejection nobody caught used to end the process silently on some Node
 // versions and be invisible on others. Log it; do not pretend it is fatal.
+// An Error goes to logger.error as itself, so it reaches Sentry (console
+// still prints its stack). Sentry's own onUnhandledRejection integration sees
+// it too; the SDK marks a captured Error, so it is reported once.
 process.on('unhandledRejection', (reason) => {
-  logger.error(`Unhandled rejection: ${reason?.stack || reason}`);
+  logger.error('Unhandled rejection:', reason instanceof Error ? reason : String(reason));
 });
 
 export { app, wss };

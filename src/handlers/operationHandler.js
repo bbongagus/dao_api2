@@ -79,7 +79,9 @@ export function createOperationHandler(deps) {
         logger.info(`[QUEUE #${seq}] DONE ${operation.type} for ${lockKey}`);
         return result;
       } catch (error) {
-        logger.error(`[QUEUE #${seq}] ERROR ${operation.type}: ${error.message}`);
+        // The Error itself, not its message in a string: logger.error only
+        // reports an Error to Sentry. Never the payload — it holds titles.
+        logger.error(`[QUEUE #${seq}] ERROR ${operation.type}:`, error);
         return null;
       }
     });

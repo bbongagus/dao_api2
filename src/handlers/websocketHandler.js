@@ -125,7 +125,7 @@ async function handleSubscribe(data, clientInfo, clientId, ws, { getGraph, saveG
     // Not a refusal: the client reconnects in a while instead of sending the
     // person to sign in for an outage that is not theirs.
     if (error instanceof VerifierUnavailableError) {
-      logger.error(`Client ${clientId} SUBSCRIBE could not be checked: ${error.message}`);
+      logger.error(`Client ${clientId} SUBSCRIBE could not be checked:`, error);
       ws.send(JSON.stringify({ type: 'AUTH_UNAVAILABLE' }));
       ws.close(TRY_AGAIN_LATER, 'try again later');
       return;
