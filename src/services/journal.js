@@ -187,7 +187,7 @@ export function createJournal(redis) {
           'entry', JSON.stringify({ at: new Date().toISOString(), ...entry }),
         );
       } catch (error) {
-        logger.error(`Journal write failed for ${userId}:${graphId}: ${error.message}`);
+        logger.error(`Journal write failed for ${userId}:${graphId}:`, error);
       }
     },
 

@@ -2,6 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createOperationHandler } from './operationHandler.js';
+import { setErrorReporter } from '../utils/logger.js';
 import redis from '../redis.js';
 
 // Applying UPDATE_NODE reaches dailyCompletions, which holds the shared Redis
@@ -59,4 +60,20 @@ test('an operation with no user is refused before it touches anything', () => {
     /userId/
   );
   assert.equal(recorded.length, 0);
+});
+
+test('an operation that throws reaches the error reporter as an Error, not a string', async (t) => {
+  const reported = [];
+  setErrorReporter((error) => reported.push(error));
+  t.after(() => setErrorReporter(null));
+  const boom = new Error('Redis went away');
+  const apply = createOperationHandler({
+    getGraph: async () => { throw boom; },
+    saveGraph: async () => true,
+  });
+
+  const result = await apply('main', { type: 'UPDATE_NODE', payload: { nodeId: 'stage', updates: { title: 'Leave my job' } } }, 'user-1');
+
+  assert.equal(result, null);
+  assert.deepEqual(reported, [boom]);
 });

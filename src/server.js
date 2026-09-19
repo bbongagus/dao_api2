@@ -278,8 +278,11 @@ process.on('SIGINT', () => shutDown('SIGINT'));
 
 // A rejection nobody caught used to end the process silently on some Node
 // versions and be invisible on others. Log it; do not pretend it is fatal.
+// An Error goes to logger.error as itself, so it reaches Sentry (console
+// still prints its stack). Sentry's own onUnhandledRejection integration sees
+// it too; the SDK marks a captured Error, so it is reported once.
 process.on('unhandledRejection', (reason) => {
-  logger.error(`Unhandled rejection: ${reason?.stack || reason}`);
+  logger.error('Unhandled rejection:', reason instanceof Error ? reason : String(reason));
 });
 
 export { app, wss };
