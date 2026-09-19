@@ -85,6 +85,14 @@ export function describeOperation(graph, operation) {
       return { type, nodeId, title: findNode(nodes, nodeId)?.title ?? null };
     }
 
+    case 'MOVE_NODE':
+      return {
+        type,
+        nodeId: payload.nodeId,
+        title: findNode(nodes, payload.nodeId)?.title ?? null,
+        parent: payload.parentId ? ref(payload.parentId) : null,
+      };
+
     case 'ADD_EDGE':
       return {
         type,
@@ -165,6 +173,10 @@ export function formatEntry(entry) {
     }
     case 'DELETE_NODE':
       return `${when}  DELETE_NODE  ${quote(entry.title)}`;
+    case 'MOVE_NODE': {
+      const where = entry.parent ? `inside ${quote(entry.parent.title)}` : 'to the top level';
+      return `${when}  MOVE_NODE  ${quote(entry.title)} ${where}`;
+    }
     case 'ADD_EDGE':
       return `${when}  ADD_EDGE  ${quote(entry.source?.title)} → ${quote(entry.target?.title)}${entry.duplicate ? '  (duplicate: pair already connected, not stored)' : ''}`;
     case 'DELETE_EDGE':

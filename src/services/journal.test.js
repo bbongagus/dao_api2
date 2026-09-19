@@ -79,7 +79,34 @@ test('a deleted node keeps its title in the record', () => {
   assert.equal(change.title, 'Собрать документы');
 });
 
+test('a move names the node and where it went', () => {
+  const change = describeOperation(graph(), { type: 'MOVE_NODE', payload: { nodeId: 'task', parentId: 'cat' } });
+
+  assert.deepEqual(change, {
+    type: 'MOVE_NODE', nodeId: 'task', title: 'Собрать документы', parent: { id: 'cat', title: 'Гражданство' },
+  });
+});
+
+test('a move to the top level has no parent', () => {
+  const change = describeOperation(graph(), { type: 'MOVE_NODE', payload: { nodeId: 'stage', parentId: null } });
+
+  assert.equal(change.parent, null);
+});
+
 // --- reading the journal as a person ---
+
+test('a move reads as the node and where it went', () => {
+  const inside = formatEntry({
+    kind: 'operation', at: '2026-09-15T11:55:13.000Z', type: 'MOVE_NODE', nodeId: 'task', title: 'Собрать документы',
+    parent: { id: 'cat', title: 'Гражданство' },
+  });
+  const top = formatEntry({
+    kind: 'operation', at: '2026-09-15T11:55:13.000Z', type: 'MOVE_NODE', nodeId: 'task', title: 'Собрать документы', parent: null,
+  });
+
+  assert.match(inside, /MOVE_NODE  «Собрать документы» inside «Гражданство»/);
+  assert.match(top, /MOVE_NODE  «Собрать документы» to the top level/);
+});
 
 test('an update reads as the node and what moved', () => {
   const out = formatEntry({

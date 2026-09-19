@@ -18,6 +18,7 @@ export function handleAddNode(graph, payload, nodeIndex = null) {
   const newNode = {
     id: payload.id,
     title: payload.title || 'New Node',
+    description: payload.description || '',
     nodeType: payload.nodeType || 'dao',
     nodeSubtype: payload.nodeSubtype || 'simple',
     position: payload.position || { x: 0, y: 0 },

@@ -9,6 +9,7 @@ import { logger } from '../../utils/logger.js';
 import { handleAddNode } from './addNode.js';
 import { handleUpdateNode } from './updateNode.js';
 import { handleDeleteNode } from './deleteNode.js';
+import { handleMoveNode } from './moveNode.js';
 import { handleUpdateNodePosition } from './nodePosition.js';
 import { handleAddEdge, handleDeleteEdge } from './edges.js';
 import { handleUpdateViewport } from './viewport.js';
@@ -30,6 +31,9 @@ const operationHandlers = {
 
   DELETE_NODE: (graph, payload, graphId, nodeIndex) =>
     handleDeleteNode(graph, payload, nodeIndex),
+
+  MOVE_NODE: (graph, payload) =>
+    handleMoveNode(graph, payload),
 
   ADD_EDGE: (graph, payload) =>
     handleAddEdge(graph, payload),
@@ -69,6 +73,7 @@ export {
   handleAddNode,
   handleUpdateNode,
   handleDeleteNode,
+  handleMoveNode,
   handleUpdateNodePosition,
   handleAddEdge,
   handleDeleteEdge,
