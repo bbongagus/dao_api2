@@ -8,6 +8,8 @@
 import express from 'express';
 import { clipText } from '../services/journal.js';
 import { parseChatRequest } from '../ai/chatRequest.js';
+import { isPriced } from '../ai/cost.js';
+import { resolveProvider } from '../ai/provider.js';
 import { logger } from '../utils/logger.js';
 
 // An inspect of a large branch runs long; the journal keeps enough to see
@@ -22,10 +24,15 @@ const TOOL_RESULT_LIMIT = 4000;
  * costs a slow start for a route most requests never touch. Injectable so the
  * route can be tested without an Anthropic client existing at all.
  */
-async function defaultRunAgent(params) {
+async function defaultRunAgent({ provider, ...params }) {
   const Anthropic = (await import('@anthropic-ai/sdk')).default;
   const { runGraphAgent } = await import('../ai/agent.js');
-  return runGraphAgent({ client: new Anthropic(), ...params });
+  return runGraphAgent({
+    client: new Anthropic(provider.clientOptions),
+    model: provider.model,
+    extraBody: provider.extraBody,
+    ...params,
+  });
 }
 
 /**
@@ -34,7 +41,13 @@ async function defaultRunAgent(params) {
  *        missing one refuses the turn rather than running it unmetered, so a
  *        wiring mistake costs a 503 and not a month's budget.
  */
-export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgent = defaultRunAgent }) {
+/**
+ * @param {() => object} [deps.provider] which model, through whom — read from
+ *        the environment on every request by default (provider.js).
+ */
+export function setupAIRoutes({
+  getGraph, journal = null, ledger = null, runAgent = defaultRunAgent, provider: getProvider = resolveProvider,
+}) {
   // Built per call, not once per module: a module-level router accumulated the
   // handlers of every setup and answered them all with the first one's
   // dependencies — invisible in production, where this runs once.
@@ -48,7 +61,8 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
   /** What this person has left this month. */
   router.get('/balance', async (req, res) => {
     if (!ledger) return res.status(503).json({ error: 'unavailable' });
-    res.json(await ledger.remaining(req.userId));
+    // `processor` is who the person's goals are sent to; the chat panel says so.
+    res.json({ ...(await ledger.remaining(req.userId)), processor: getProvider().name });
   });
 
   /**
@@ -71,8 +85,16 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
     }
     const { messages, currentPath, graphId, mode } = parsed.value;
 
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
-      return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY is not set on the server' });
+    const provider = getProvider();
+    if (!provider.configured) {
+      return res.status(503).json({ success: false, error: 'no AI provider key is set on the server' });
+    }
+
+    // Fail closed, like a missing ledger: a model with no price would run
+    // every turn at $0 against the quota, which is no quota at all.
+    if (!isPriced(provider.model)) {
+      logger.error(`AI chat refused: model "${provider.model}" has no price in cost.js`);
+      return res.status(503).json({ success: false, error: 'model_not_priced' });
     }
 
     // Fail closed: unmetered AI behind open sign-up is an open tap.
@@ -122,7 +144,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
     let aborted = false;
     res.on('close', () => { aborted = true; leaving.abort(); });
 
-    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+    const { model } = provider;
     const startedAt = Date.now();
     const toolCalls = [];
     let result = null;
@@ -131,7 +153,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
       const graph = await getGraph(graphId, userId);
 
       result = await runAgent({
-        model,
+        provider,
         signal: leaving.signal,
         nodes: graph?.nodes || [],
         edges: graph?.edges || [],

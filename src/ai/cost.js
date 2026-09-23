@@ -15,15 +15,36 @@ export class UnknownModelError extends Error {
 }
 
 /**
- * Dollars per million tokens, as published on 2026-09-17. Cache rates follow
- * Anthropic's multipliers unless a model states its own: writing a token to the
- * cache costs a quarter more than sending it fresh, reading one costs a tenth.
+ * Dollars per million tokens. Cache rates follow Anthropic's multipliers
+ * unless a model states its own: writing a token to the cache costs a quarter
+ * more than sending it fresh, reading one costs a tenth.
+ *
+ * Anthropic's models by their own ids, as published on 2026-09-17.
+ *
+ * The rest by their OpenRouter slugs, read from openrouter.ai on 2026-09-23.
+ * A model there is served by several hosts at different prices, so each is
+ * priced at the dearest of the US hosts it may be routed to (DeepInfra,
+ * Fireworks, Together) — and provider.js sends that same price as OpenRouter's
+ * `max_price`, so a call is never billed above what the quota is charged.
+ * None of them charges extra for writing the cache, so each states its rates.
  */
 export const PRICES = {
   'claude-sonnet-5': { input: 2, output: 10 },
   'claude-opus-5': { input: 5, output: 25 },
   'claude-haiku-4-5': { input: 1, output: 5 },
+
+  'anthropic/claude-sonnet-5': { input: 2, output: 10 },
+  'z-ai/glm-5.3-flash': { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0.15 },
+  'deepseek/deepseek-v4.1-flash': { input: 0.3, output: 1.2, cacheRead: 0.03, cacheWrite: 0.3 },
+  // Only Alibaba serves it, from outside the US.
+  'qwen/qwen3.8-flash': { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0.2 },
+  'google/gemini-3.8-flash': { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.75 },
 };
+
+/** Whether a turn on this model can be charged. A turn that cannot is refused. */
+export function isPriced(model) {
+  return Object.hasOwn(PRICES, model);
+}
 
 const CACHE_WRITE_MULTIPLIER = 1.25;
 const CACHE_READ_MULTIPLIER = 0.1;
@@ -38,8 +59,8 @@ const MILLION = 1_000_000;
  * @returns {number} dollars
  */
 export function costOf(model, usage = {}) {
+  if (!isPriced(model)) throw new UnknownModelError(model);
   const price = PRICES[model];
-  if (!price) throw new UnknownModelError(model);
 
   const cacheWrite = price.cacheWrite ?? price.input * CACHE_WRITE_MULTIPLIER;
   const cacheRead = price.cacheRead ?? price.input * CACHE_READ_MULTIPLIER;

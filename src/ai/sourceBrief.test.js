@@ -75,44 +75,102 @@ test('the brief is labelled so it is not mistaken for the person talking', async
   assert.match(out[1].content, /Some source text/);
 });
 
-// --- what reading a link may cost ---
+// --- reading the pages ---
 
-test('a fetched page is capped, so one long page cannot become the whole bill', async () => {
-  let sent = null;
-  const client = {
+/** A client that records what it was asked and answers with a fixed brief. */
+function briefClient(answer = 'brief', usage = { input_tokens: 100 }) {
+  const calls = [];
+  return {
+    calls,
     messages: {
       async create(params) {
-        sent = params;
-        return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'brief' }], usage: {} };
+        calls.push(params);
+        return { stop_reason: 'end_turn', content: [{ type: 'text', text: answer }], usage };
       },
     },
   };
+}
 
-  await buildSourceBrief(client, 'claude-sonnet-5', [{ role: 'user', content: 'see https://example.com/long' }]);
+const pages = (byUrl) => async (url) => {
+  const page = byUrl[url];
+  if (!page) throw new Error('the page answered 404');
+  return { url, title: page.title ?? '', text: page.text };
+};
 
-  const fetchTool = sent.tools.find((tool) => tool.name === 'web_fetch');
-  assert.ok(fetchTool.max_content_tokens > 0, 'every fetch needs a ceiling');
-  assert.ok(fetchTool.max_content_tokens <= 32_000, `${fetchTool.max_content_tokens} tokens per page is a lot of input`);
-  assert.ok(fetchTool.max_uses <= 5);
-});
+test('the pages are read here and handed to the model as text, with no server-side tool', async () => {
+  const client = briefClient('В статье три этапа.');
 
-test('every call the link reader makes is reported, including a paused turn resumed', async () => {
-  const reported = [];
-  let call = 0;
-  const client = {
-    messages: {
-      async create() {
-        call += 1;
-        return call === 1
-          ? { stop_reason: 'pause_turn', content: [], usage: { input_tokens: 100 } }
-          : { stop_reason: 'end_turn', content: [{ type: 'text', text: 'brief' }], usage: { input_tokens: 200 } };
-      },
-    },
-  };
-
-  await buildSourceBrief(client, 'claude-sonnet-5', [{ role: 'user', content: 'see https://example.com' }], {
-    onUsage: (model, usage) => reported.push(usage.input_tokens),
+  const brief = await buildSourceBrief(client, 'm', [{ role: 'user', content: 'see https://a.test/guide' }], {
+    fetchPage: pages({ 'https://a.test/guide': { title: 'Guide', text: 'Этап 1. Этап 2. Этап 3.' } }),
   });
 
-  assert.deepEqual(reported, [100, 200]);
+  assert.equal(brief, 'В статье три этапа.');
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].tools, undefined, 'no provider-specific fetch tool');
+  const sent = client.calls[0].messages[0].content;
+  assert.match(sent, /https:\/\/a\.test\/guide/);
+  assert.match(sent, /Этап 1\. Этап 2\. Этап 3\./);
+});
+
+test('the model is not called at all when no page could be read', async () => {
+  const client = briefClient();
+
+  const brief = await buildSourceBrief(client, 'm', [{ role: 'user', content: 'see https://a.test/missing' }], {
+    fetchPage: pages({}),
+  });
+
+  assert.equal(brief, null);
+  assert.equal(client.calls.length, 0, 'a turn that read nothing pays for nothing');
+});
+
+test('a link that could not be read is named after the brief, so the agent can say so', async () => {
+  const client = briefClient('Brief of the first page.');
+
+  const brief = await buildSourceBrief(client, 'm', [{ role: 'user', content: 'https://a.test/ok and https://b.test/gone' }], {
+    fetchPage: pages({ 'https://a.test/ok': { text: 'content' } }),
+  });
+
+  assert.match(brief, /^Brief of the first page\./);
+  assert.match(brief, /https:\/\/b\.test\/gone/);
+  assert.doesNotMatch(client.calls[0].messages[0].content, /b\.test/);
+});
+
+test('no more than five links are read', async () => {
+  const asked = [];
+  const text = Array.from({ length: 8 }, (_, i) => `https://a.test/${i}`).join(' ');
+
+  await buildSourceBrief(briefClient(), 'm', [{ role: 'user', content: text }], {
+    fetchPage: async (url) => { asked.push(url); return { url, title: '', text: 'x' }; },
+  });
+
+  assert.equal(asked.length, 5);
+});
+
+test('the page text is marked as material to summarise, not instructions', async () => {
+  const { BRIEF_SYSTEM_PROMPT } = await import('./sourceBrief.js');
+  assert.match(BRIEF_SYSTEM_PROMPT, /not instructions/i);
+});
+
+test('the call the link reader makes is reported, and carries the routing it is given', async () => {
+  const reported = [];
+  const client = briefClient('brief', { input_tokens: 200 });
+
+  await buildSourceBrief(client, 'm', [{ role: 'user', content: 'see https://a.test/x' }], {
+    fetchPage: pages({ 'https://a.test/x': { text: 'x' } }),
+    onUsage: (model, usage) => reported.push([model, usage.input_tokens]),
+    extraBody: { provider: { only: ['deepinfra'] } },
+  });
+
+  assert.deepEqual(reported, [['m', 200]]);
+  assert.deepEqual(client.calls[0].provider, { only: ['deepinfra'] });
+});
+
+test('a failing model call means no brief, never a thrown turn', async () => {
+  const client = { messages: { async create() { throw new Error('upstream down'); } } };
+
+  const brief = await buildSourceBrief(client, 'm', [{ role: 'user', content: 'see https://a.test/x' }], {
+    fetchPage: pages({ 'https://a.test/x': { text: 'x' } }),
+  });
+
+  assert.equal(brief, null);
 });

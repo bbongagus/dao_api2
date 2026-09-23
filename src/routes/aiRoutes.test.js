@@ -8,8 +8,8 @@ import { setupAIRoutes } from './aiRoutes.js';
  * The route with every collaborator stubbed. No Anthropic client is ever
  * constructed: `runAgent` is injected, so nothing here can cost money.
  */
-function serve(t, { ledger, runAgent, journal, getGraph } = {}) {
-  const calls = { agent: 0, recorded: [], journalled: [] };
+function serve(t, { ledger, runAgent, journal, getGraph, provider } = {}) {
+  const calls = { agent: 0, recorded: [], journalled: [], agentParams: null };
 
   const app = express();
   app.use(express.json());
@@ -18,8 +18,10 @@ function serve(t, { ledger, runAgent, journal, getGraph } = {}) {
     getGraph: getGraph ?? (async () => ({ nodes: [], edges: [] })),
     journal: journal ?? { record: (...args) => { calls.journalled.push(args); } },
     ledger: ledger === undefined ? allowingLedger(calls) : ledger,
-    runAgent: runAgent ?? (async () => {
+    provider: provider ?? (() => aProvider()),
+    runAgent: runAgent ?? (async (params) => {
       calls.agent += 1;
+      calls.agentParams = params;
       return { type: 'text', message: 'ok', usage: { calls: 3, input: 1000, output: 50, dollars: 0.04 } };
     }),
   }));
@@ -48,8 +50,15 @@ const chat = (url, body = { messages: [{ role: 'user', content: 'привет' }
     body: JSON.stringify(body),
   });
 
-/** The route refuses without a key; give it one — nothing real is called. */
-test.before(() => { process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-not-a-real-key'; });
+/** A configured provider on a priced model; nothing real is ever called. */
+const aProvider = (overrides = {}) => ({
+  model: 'claude-sonnet-5',
+  name: 'Anthropic',
+  configured: true,
+  clientOptions: { apiKey: 'test-not-a-real-key', authToken: null, baseURL: undefined },
+  extraBody: {},
+  ...overrides,
+});
 
 test('a user out of quota is refused before the agent runs at all', async (t) => {
   const { calls, url } = serve(t, { ledger: refusingLedger('user') });
@@ -126,6 +135,42 @@ test('with no ledger wired the route refuses — a miswiring must not hand out f
 
   assert.equal(response.status, 503);
   assert.equal(calls.agent, 0);
+});
+
+test('a model with no price is refused before the agent runs — it could never be charged', async (t) => {
+  const { calls, url } = serve(t, { provider: () => aProvider({ model: 'someone/unpriced-model' }) });
+
+  const response = await chat(url);
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.error, 'model_not_priced');
+  assert.equal(calls.agent, 0);
+});
+
+test('with no credentials for the provider the route refuses', async (t) => {
+  const { calls, url } = serve(t, { provider: () => aProvider({ configured: false }) });
+
+  assert.equal((await chat(url)).status, 503);
+  assert.equal(calls.agent, 0);
+});
+
+test('the agent is handed the provider the route resolved', async (t) => {
+  const provider = aProvider({ model: 'z-ai/glm-5.3-flash', extraBody: { provider: { only: ['deepinfra'] } } });
+  const { calls, url } = serve(t, { provider: () => provider });
+
+  await (await chat(url)).text();
+
+  assert.equal(calls.agentParams.provider, provider);
+  assert.equal(calls.journalled[0][2].model, 'z-ai/glm-5.3-flash');
+});
+
+test('the balance says who the goals are sent to', async (t) => {
+  const { url } = serve(t, { provider: () => aProvider({ name: 'OpenRouter (deepinfra)' }) });
+
+  const body = await (await fetch(`${url}/api/ai/balance`)).json();
+
+  assert.equal(body.processor, 'OpenRouter (deepinfra)');
 });
 
 test('the balance endpoint says what is left', async (t) => {

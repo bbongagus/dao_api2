@@ -576,7 +576,45 @@ test('a turn the person walked away from reads as cancelled, not as an API failu
   });
 
   // APIUserAbortError is itself an APIError, so without its own branch this
-  // was journalled as "Claude's API returned an error" — which it was not.
+  // was journalled as an upstream API error — which it was not.
   assert.equal(turn.type, 'cancelled');
   assert.equal(turn.usage.calls, 1, 'what it spent before being stopped is still charged');
+});
+
+test('the routing a provider needs is sent with the agent loop, beside its own parameters', async () => {
+  let sent = null;
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          sent = params;
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+
+  await runGraphAgent({
+    client, model: 'z-ai/glm-5.3-flash', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+    extraBody: { provider: { only: ['deepinfra'] }, model: 'must-not-override' },
+  });
+
+  assert.deepEqual(sent.provider, { only: ['deepinfra'] });
+  assert.equal(sent.model, 'z-ai/glm-5.3-flash', 'routing cannot replace the model');
+});
+
+test('an upstream failure names no particular vendor — the agent may run on any', async () => {
+  for (const error of [
+    new Anthropic.RateLimitError(429, {}, 'slow down', new Headers()),
+    new Anthropic.APIConnectionError({ message: 'fetch failed' }),
+    new Anthropic.InternalServerError(500, {}, 'boom', new Headers()),
+    new TypeError('unrelated'),
+  ]) {
+    const turn = await runGraphAgent({
+      client: stubClient(error), model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+      messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+    });
+    assert.doesNotMatch(turn.message, /Claude/, turn.message);
+  }
 });

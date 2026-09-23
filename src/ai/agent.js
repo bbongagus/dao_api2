@@ -79,6 +79,8 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 
 export async function runGraphAgent({
   client, model, nodes, edges = [], currentPath, messages, mode, emit, onToolCall = () => {}, signal,
+  // What the host needs beside the Messages parameters — OpenRouter's routing.
+  extraBody = {},
 }) {
   // Every upstream call this turn makes is added here — the link reader's up
   // to four and the loop's up to twelve — so the quota is charged for all of
@@ -99,7 +101,7 @@ export async function runGraphAgent({
   let brief = null;
   if (messages.some((m) => m.role === 'user' && /https?:\/\//.test(m.content || ''))) {
     emit({ type: 'status', text: 'reading the link' });
-    brief = await buildSourceBrief(client, model, messages, { onUsage: meter.add, signal });
+    brief = await buildSourceBrief(client, model, messages, { onUsage: meter.add, signal, extraBody });
     if (!brief) emit({ type: 'status', text: 'could not read the link — going on without it' });
   }
 
@@ -287,6 +289,7 @@ export async function runGraphAgent({
     // message, and every iteration before it was billed too. Each one carries
     // its own `usage`, and this is the only place it can be read.
     const runner = client.beta.messages.toolRunner({
+      ...extraBody,
       model,
       max_tokens: MAX_TOKENS,
       max_iterations: MAX_ITERATIONS,
@@ -316,25 +319,25 @@ export async function runGraphAgent({
     // the contract.
     // Before the APIError branch: an abort is itself an APIError, so without
     // its own case a person closing the tab was journalled as a failure of
-    // Claude's.
+    // the model's.
     if (error instanceof Anthropic.APIUserAbortError || error?.name === 'AbortError') {
       return withUsage({ type: 'cancelled', message: 'Stopped.' });
     }
     if (error instanceof Anthropic.RateLimitError) {
-      return withUsage({ type: 'error', message: 'Claude is rate-limited right now. Try again in a moment.' });
+      return withUsage({ type: 'error', message: 'The AI model is rate-limited right now. Try again in a moment.' });
     }
     if (error instanceof Anthropic.APIConnectionError) {
-      return withUsage({ type: 'error', message: 'Could not reach Claude. Check the connection and try again.' });
+      return withUsage({ type: 'error', message: 'Could not reach the AI model. Check the connection and try again.' });
     }
     if (error instanceof Anthropic.APIError) {
-      return withUsage({ type: 'error', message: `Claude's API returned an error (status ${error.status ?? 'unknown'}). Try again in a moment.` });
+      return withUsage({ type: 'error', message: `The AI provider returned an error (status ${error.status ?? 'unknown'}). Try again in a moment.` });
     }
     console.error('runGraphAgent: toolRunner failed:', error);
-    return withUsage({ type: 'error', message: 'Something went wrong talking to Claude. Try again.' });
+    return withUsage({ type: 'error', message: 'Something went wrong talking to the AI model. Try again.' });
   }
 
   if (final.stop_reason === 'refusal') {
-    return withUsage({ type: 'error', message: 'Claude declined this request.' });
+    return withUsage({ type: 'error', message: 'The model declined this request.' });
   }
 
   const summary = final.content

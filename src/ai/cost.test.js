@@ -39,3 +39,20 @@ test('every listed price is a positive number per million tokens', () => {
     assert.ok(output > input, `${model}: output is normally dearer than input`);
   }
 });
+
+test('a model reached through another host states its own cache rates — no Anthropic premium on writes', () => {
+  // GLM-5.3-Flash through OpenRouter: $0.15 in, $0.50 out, cache reads $0.03.
+  assert.equal(costOf('z-ai/glm-5.3-flash', { cache_creation_input_tokens: MILLION }), 0.15);
+  assert.equal(costOf('z-ai/glm-5.3-flash', { cache_read_input_tokens: MILLION }), 0.03);
+  for (const model of Object.keys(PRICES).filter((m) => m.includes('/') && !m.startsWith('anthropic/'))) {
+    assert.ok(PRICES[model].cacheRead > 0 && PRICES[model].cacheWrite > 0, `${model} needs explicit cache rates`);
+  }
+});
+
+test('isPriced says whether a turn on a model can be charged at all', async () => {
+  const { isPriced } = await import('./cost.js');
+  assert.equal(isPriced('claude-sonnet-5'), true);
+  assert.equal(isPriced('deepseek/deepseek-v4.1-flash'), true);
+  assert.equal(isPriced('someone/new-model'), false);
+  assert.equal(isPriced('constructor'), false, 'a prototype key is not a price');
+});
