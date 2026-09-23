@@ -25,15 +25,21 @@ export function handleDeleteNode(graph, payload, nodeIndex = null) {
     logger.debug(`Node ${nodeId} parent: ${parentId || 'root'} (from NodeIndex)`);
   }
   
+  // Everything inside goes with the node, so its edges must go too. Until
+  // 2026-09-23 only the node's own were removed, and every arrow between its
+  // descendants stayed in the graph pointing at nothing.
+  const gone = subtreeIds((nodeIndex && nodeIndex.getNode(nodeId)) || findNode(graph.nodes, nodeId));
+
   // Remove node from graph hierarchy
   const removed = removeNodeFromHierarchy(graph, nodeId, parentId, nodeIndex);
   
   if (removed) {
-    // Remove edges connected to this node
-    const edgesBefore = graph.edges.length;
-    graph.edges = graph.edges.filter(e =>
-      e.source !== nodeId && e.target !== nodeId
+    // Remove edges connected to this node or anything inside it
+    const edgesBefore = (graph.edges || []).length;
+    graph.edges = (graph.edges || []).filter(e =>
+      !gone.has(e.source) && !gone.has(e.target)
     );
+    forgetLinks(graph.nodes, gone);
     const edgesRemoved = edgesBefore - graph.edges.length;
     
     if (edgesRemoved > 0) {
@@ -52,6 +58,36 @@ export function handleDeleteNode(graph, payload, nodeIndex = null) {
   }
   
   return removed;
+}
+
+/** The node's id and the ids of everything nested in it. */
+function subtreeIds(node, ids = new Set()) {
+  if (!node) return ids;
+  ids.add(node.id);
+  for (const child of node.children || []) subtreeIds(child, ids);
+  return ids;
+}
+
+function findNode(nodes, nodeId) {
+  for (const node of nodes || []) {
+    if (node.id === nodeId) return node;
+    const inside = findNode(node.children, nodeId);
+    if (inside) return inside;
+  }
+  return null;
+}
+
+/** The editor's copy of the links (CLAUDE.md, "A link is stored twice") must not name deleted nodes either. */
+function forgetLinks(nodes, gone) {
+  for (const node of nodes || []) {
+    const links = node.linkedNodeIds;
+    if (links) {
+      for (const side of ['upstream', 'downstream']) {
+        if (Array.isArray(links[side])) links[side] = links[side].filter((id) => !gone.has(id));
+      }
+    }
+    forgetLinks(node.children, gone);
+  }
 }
 
 /**
