@@ -7,12 +7,14 @@
 
 export const GRAPH_SEMANTICS = `## How the graph reads
 
-Left to right, in time: what has to happen first sits further left. An arrow
-means "this cannot start before that is done". If a step waits for another -
-the visa for the certificate, the decree for the interview - there is an
-arrow between them, whichever part of the graph each sits in. A dependency
-written only in a description is a mistake: the graph then shows as possible
-now something that is not.
+Left to right by dependency: what a node waits for sits to its left. An arrow
+means "this cannot start before that is done" - not "this usually comes
+later". If a step waits for another - the visa for the certificate, the
+decree for the interview - there is an arrow between them, whichever part of
+the graph each sits in. A dependency written only in a description is a
+mistake: the graph then shows as possible now something that is not. An
+arrow where there is no dependency is the same mistake the other way round:
+it hides work that could start now.
 
 ## The kinds, and what progress each one reports
 
@@ -57,7 +59,9 @@ One to three sentences. Say why the node exists, what counts as done, and any
 concrete detail that will not fit in a title - a number, a threshold, an order
 of operations, a thing to watch out for. When you planned from a source the
 person linked, this is where its specifics belong: the timings, quantities and
-conditions the page gave. Do not restate the title, and do not pad.
+conditions the page gave. Do not restate the title, and do not pad. A step with a checklist
+says what counts as done, or what to watch out for; it does not list the
+checklist again.
 
 Because the detail has a home, keep titles short.
 

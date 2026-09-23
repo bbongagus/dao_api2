@@ -146,3 +146,36 @@ test('the ramp keeps quiet about its tools, and promises nothing for later', () 
   assert.match(RAMP_PROMPT, /Never tell them about your tools/);
   assert.match(RAMP_PROMPT, /never promise to do\s+something in a later message/);
 });
+// What reading GPT-6 Luna's plans showed: stages chained by calendar, a
+// fixed three items a checklist, the person's own route rebuilt around a
+// doubt, the last stage an activity rather than the goal.
+
+test('an arrow is a dependency, not calendar order — and an arrow where there is none is a mistake too', () => {
+  assert.doesNotMatch(AGENT_SYSTEM_PROMPT, /Left to right, in time/);
+  assert.match(AGENT_SYSTEM_PROMPT, /not\s+"this\s+usually\s+comes\s+later"/);
+  assert.match(AGENT_SYSTEM_PROMPT, /hides\s+work\s+that\s+could\s+start\s+now/);
+});
+
+test('a stage waits only for what it cannot start without, and every after is questioned before plan_path', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /cannot\s+start\s+without/);
+  assert.match(AGENT_SYSTEM_PROMPT, /could\s+this\s+stage\s+start\s+without\s+that\s+one/);
+  assert.match(AGENT_SYSTEM_PROMPT, /do\s+not\s+turn\s+the\s+months\s+into\s+a\s+chain/);
+});
+
+test('the last stage is the goal reached, not the activity toward it', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /The\s+last\s+stage\s+is\s+the\s+goal\s+itself,\s+reached/);
+});
+
+test("the person's own route is planned, and a legal doubt is said once where it applies", () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /plan\s+that\s+route/);
+  assert.match(AGENT_SYSTEM_PROMPT, /do\s+not\s+rebuild\s+the\s+plan\s+around\s+the\s+doubt/);
+});
+
+test('a checklist holds what the step really has, and its description does not repeat it', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /not\s+a\s+set\s+number/);
+  assert.match(AGENT_SYSTEM_PROMPT, /does\s+not\s+list\s+the\s+checklist\s+again/);
+});
+
+test('real names, and finding one out rather than inventing it', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /rather\s+than\s+inventing\s+one/);
+});
