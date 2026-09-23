@@ -39,6 +39,9 @@ export const PRICES = {
   // Only Alibaba serves it, from outside the US.
   'qwen/qwen3.8-flash': { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0.2 },
   'google/gemini-3.8-flash': { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.75 },
+
+  // DeepInfra directly, by its own id, read from its model list on 2026-09-23.
+  'zai-org/GLM-5.3-Flash': { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0.15 },
 };
 
 /** Whether a turn on this model can be charged. A turn that cannot is refused. */

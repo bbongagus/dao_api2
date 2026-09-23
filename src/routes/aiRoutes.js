@@ -31,6 +31,7 @@ async function defaultRunAgent({ provider, ...params }) {
     client: new Anthropic(provider.clientOptions),
     model: provider.model,
     extraBody: provider.extraBody,
+    thinking: provider.thinking,
     ...params,
   });
 }

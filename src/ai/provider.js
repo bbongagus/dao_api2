@@ -24,11 +24,26 @@
  *
  *   AI_PROVIDER_NAME      who the person is told their goals are sent to;
  *                         by default derived from the address
+ *
+ *   AI_THINKING_BUDGET    tokens the model may think before answering, in
+ *                         the agent loop only; unset leaves the model to its
+ *                         own default (Sonnet: none; GLM on some hosts: a lot)
  */
 
 import { PRICES, isPriced } from './cost.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-5';
+
+// The API's own minimum, and room left under the agent loop's max_tokens
+// (16000) for the answer and its tool calls.
+const MIN_THINKING = 1024;
+const MAX_THINKING = 12000;
+
+function thinkingFrom(value) {
+  const budget = Number(value);
+  if (!value || !Number.isInteger(budget) || budget < MIN_THINKING || budget > MAX_THINKING) return null;
+  return { type: 'enabled', budget_tokens: budget };
+}
 
 function hostOf(url) {
   try {
@@ -69,6 +84,7 @@ export function resolveProvider(env = process.env) {
     configured: Boolean(apiKey || authToken),
     clientOptions: { apiKey, authToken, baseURL },
     extraBody,
+    thinking: thinkingFrom(env.AI_THINKING_BUDGET),
   };
 }
 

@@ -81,6 +81,8 @@ export async function runGraphAgent({
   client, model, nodes, edges = [], currentPath, messages, mode, emit, onToolCall = () => {}, signal,
   // What the host needs beside the Messages parameters — OpenRouter's routing.
   extraBody = {},
+  // A thinking budget for the loop, or null to leave the model's default.
+  thinking = null,
 }) {
   // Every upstream call this turn makes is added here — the link reader's up
   // to four and the loop's up to twelve — so the quota is charged for all of
@@ -293,6 +295,7 @@ export async function runGraphAgent({
       model,
       max_tokens: MAX_TOKENS,
       max_iterations: MAX_ITERATIONS,
+      ...(thinking ? { thinking } : {}),
       // The robust pair for an agent loop. The explicit marker gives the
       // system prompt a read point that survives whatever happens in
       // `messages`; the top-level one follows the tail as the loop appends

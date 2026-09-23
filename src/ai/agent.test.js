@@ -618,3 +618,30 @@ test('an upstream failure names no particular vendor — the agent may run on an
     assert.doesNotMatch(turn.message, /Claude/, turn.message);
   }
 });
+
+test('a thinking budget goes with the agent loop', async () => {
+  let sent = null;
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          sent = params;
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+
+  await runGraphAgent({
+    client, model: 'zai-org/GLM-5.3-Flash', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+    thinking: { type: 'enabled', budget_tokens: 2048 },
+  });
+  assert.deepEqual(sent.thinking, { type: 'enabled', budget_tokens: 2048 });
+
+  await runGraphAgent({
+    client, model: 'zai-org/GLM-5.3-Flash', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+  assert.equal('thinking' in sent, false, 'no budget, no thinking parameter at all');
+});

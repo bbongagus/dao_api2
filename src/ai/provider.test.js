@@ -58,3 +58,15 @@ test('another host is named by its address unless a name is given', () => {
   assert.equal(resolveProvider({ ANTHROPIC_BASE_URL: 'https://api.deepinfra.com/anthropic', AI_PROVIDER_NAME: 'DeepInfra (US)' }).name, 'DeepInfra (US)');
   assert.deepEqual(resolveProvider({ ANTHROPIC_BASE_URL: 'https://api.deepinfra.com/anthropic' }).extraBody, {});
 });
+
+test('a thinking budget turns thinking on for the agent loop, and only a sane one is sent', () => {
+  const base = { ANTHROPIC_BASE_URL: 'https://api.deepinfra.com/anthropic', ANTHROPIC_AUTH_TOKEN: 'k' };
+
+  assert.deepEqual(resolveProvider({ ...base, AI_THINKING_BUDGET: '2048' }).thinking, { type: 'enabled', budget_tokens: 2048 });
+  assert.equal(resolveProvider(base).thinking, null, 'unset leaves the model to its default');
+  // Below the API's minimum, above what the loop's max_tokens leaves room
+  // for, or not a number at all: not sent, rather than a turn that fails.
+  for (const bad of ['512', '20000', 'lots', '2048.5']) {
+    assert.equal(resolveProvider({ ...base, AI_THINKING_BUDGET: bad }).thinking, null, bad);
+  }
+});
