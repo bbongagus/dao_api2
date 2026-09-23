@@ -146,8 +146,3 @@ test('the ramp keeps quiet about its tools, and promises nothing for later', () 
   assert.match(RAMP_PROMPT, /Never tell them about your tools/);
   assert.match(RAMP_PROMPT, /never promise to do\s+something in a later message/);
 });
-
-test('the prompt states how big a plan may be, in the same number the compiler enforces', async () => {
-  const { MAX_PLAN_NODES } = await import('./planCompiler.js');
-  assert.match(AGENT_SYSTEM_PROMPT, new RegExp(`at most ${MAX_PLAN_NODES} nodes`));
-});

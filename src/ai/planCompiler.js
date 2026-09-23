@@ -110,9 +110,9 @@ export function compilePlan(plan, { nodes = [], aliases }) {
     stageById.set(id, stage);
   }
 
-  if (nodeCount > MAX_PLAN_NODES) {
-    return { error: `That plan comes to ${nodeCount} nodes, more than ${MAX_PLAN_NODES}. Merge small steps, or move detail into checklists.` };
-  }
+  // EXPERIMENT (exp/no-plan-limit): no node limit, to see what size plans
+  // come out when nothing refuses them. MAX_PLAN_NODES stays exported for
+  // whoever puts a limit back.
 
   for (const [id, stage] of stageById) {
     for (const dep of ids(stage.after)) {

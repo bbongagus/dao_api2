@@ -254,7 +254,8 @@ test('a stage id of "section" is refused, since that alias is reserved for the s
   assert.match(refused(inNewSection([stage('section', 'A', [step('x', 'X')])])), /reserved/);
 });
 
-test('a plan over forty nodes is refused', () => {
-  const steps = Array.from({ length: 40 }, (_, i) => step(`s${i}`, `Шаг ${i}`));
-  assert.match(refused(inNewSection([stage('big', 'Большой', steps)])), /more than 40/);
+test('EXPERIMENT: a plan of any size is compiled — no node limit', () => {
+  const steps = Array.from({ length: 60 }, (_, i) => step(`s${i}`, `Шаг ${i}`));
+  const result = compilePlan({ section: '', sectionTitle: 'Большой', stages: [stage('big', 'Большой', steps)] }, { nodes: [], aliases: buildAliasTable([]) });
+  assert.equal(result.error, undefined);
 });

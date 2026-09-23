@@ -8,7 +8,6 @@
 
 import { GRAPH_SEMANTICS } from './graphPlan.js';
 import { KIND_LIST } from './graphWriteTools.js';
-import { MAX_PLAN_NODES } from './planCompiler.js';
 
 export const KIND_GLOSS = {
   dao: 'a concrete task, done once',
@@ -59,10 +58,6 @@ the stage.
 
 Put detail into a checklist rather than a chain of tiny steps: gathering five
 documents is one step with a checklist of five.
-
-A plan holds at most ${MAX_PLAN_NODES} nodes: a new section, each stage, each step and
-each checklist item count one apiece. Count before you call \`plan_path\` — a
-larger plan is refused whole.
 
 One plan is staged per turn. Calling \`plan_path\` again replaces the plan
 staged earlier, so call it with the real plan, never a trial one.
