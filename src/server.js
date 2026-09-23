@@ -6,6 +6,7 @@
  */
 
 import { WebSocketServer } from 'ws';
+import { setupSpeechSocket, SPEECH_PATH } from './speech/liveSpeech.js';
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
@@ -69,7 +70,15 @@ const server = http.createServer(app);
 // A megabyte is far above any operation this protocol sends — the graph itself
 // never comes in over the socket — and far below what an unbounded frame could
 // make the server allocate.
-const wss = new WebSocketServer({ server, maxPayload: 1024 * 1024 });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+// The chat's microphone streams on a socket of its own. The graph socket's
+// path is `/<graphId>`, one segment, so a two-segment path cannot collide.
+const speechWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  const target = pathname === SPEECH_PATH ? speechWss : wss;
+  target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
+});
 
 // Track connected clients
 const clients = new Map();
@@ -185,6 +194,7 @@ setupWebSocketHandler({
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients, graphQueue }));
 app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger }));
+setupSpeechSocket({ wss: speechWss, verifyToken, ledger });
 app.use('/api', setupOnboardingRoutes({ redis }));
 
 // Health check endpoint
@@ -263,6 +273,7 @@ async function shutDown(signal) {
 
   server.close(() => logger.info('Server closed to new connections'));
   wss.clients.forEach((client) => client.close());
+  speechWss.clients.forEach((client) => client.close());
 
   const { pending, timedOut } = await graphQueue.drain({ timeoutMs: 5000 });
   if (timedOut) logger.error(`Shutdown: ${pending} queued operation(s) did not finish in time`);
