@@ -11,6 +11,7 @@ import { parseChatRequest } from '../ai/chatRequest.js';
 import { isPriced } from '../ai/cost.js';
 import { resolveProvider } from '../ai/provider.js';
 import { logger } from '../utils/logger.js';
+import { transcribe as defaultTranscribe, transcriptionCost, MAX_BYTES } from '../ai/transcribe.js';
 
 // An inspect of a large branch runs long; the journal keeps enough to see
 // what the agent was looking at.
@@ -48,6 +49,7 @@ async function defaultRunAgent({ provider, ...params }) {
  */
 export function setupAIRoutes({
   getGraph, journal = null, ledger = null, runAgent = defaultRunAgent, provider: getProvider = resolveProvider,
+  transcribe = defaultTranscribe, deepgramKey = () => process.env.DEEPGRAM_API_KEY,
 }) {
   // Built per call, not once per module: a module-level router accumulated the
   // handlers of every setup and answered them all with the first one's
@@ -64,6 +66,32 @@ export function setupAIRoutes({
     if (!ledger) return res.status(503).json({ error: 'unavailable' });
     // `processor` is who the person's goals are sent to; the chat panel says so.
     res.json({ ...(await ledger.remaining(req.userId)), processor: getProvider().name });
+  });
+
+  /**
+   * Voice note → text. The body is the raw recording; the answer is only the
+   * transcript, which the panel puts in the input for the person to send.
+   */
+  router.post('/transcribe', express.raw({ type: () => true, limit: MAX_BYTES }), async (req, res) => {
+    const apiKey = deepgramKey();
+    if (!apiKey) return res.status(503).json({ error: 'voice unavailable' });
+    if (!ledger) return res.status(503).json({ error: 'unavailable' });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'no audio' });
+    }
+    const verdict = await ledger.check(req.userId);
+    if (!verdict.allowed) return res.status(402).json({ error: 'quota exhausted', scope: verdict.scope });
+
+    try {
+      const { text, seconds } = await transcribe({
+        audio: req.body, contentType: req.get('content-type'), apiKey,
+      });
+      await ledger.record(req.userId, transcriptionCost(seconds));
+      res.json({ text, seconds });
+    } catch (error) {
+      logger.error('Transcription failed', { error: error.message });
+      res.status(502).json({ error: 'transcription failed' });
+    }
   });
 
   /**
