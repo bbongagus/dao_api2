@@ -70,3 +70,15 @@ test('the refusal says what was wrong, without echoing the whole body back', () 
   assert.ok(error.length < 300, `the message is ${error.length} characters long`);
   assert.doesNotMatch(error, /xxxxxxxxxx/);
 });
+
+test('a ramp turn says so, and an ordinary turn has no mode', () => {
+  assert.equal(ok({ messages: [{ role: 'user', content: 'хочу накачаться' }], mode: 'ramp' }).mode, 'ramp');
+  assert.equal(ok({ messages: [{ role: 'user', content: 'построй план' }] }).mode, undefined);
+});
+
+test('a mode the server does not know is refused', () => {
+  const turn = [{ role: 'user', content: 'привет' }];
+  rejected({ messages: turn, mode: 'system' });
+  rejected({ messages: turn, mode: 'RAMP' });
+  rejected({ messages: turn, mode: 1 });
+});

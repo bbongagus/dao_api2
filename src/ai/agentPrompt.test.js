@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildAliasTable } from './aliases.js';
-import { AGENT_SYSTEM_PROMPT, describeWhereUserIs, KIND_GLOSS } from './agentPrompt.js';
+import { AGENT_SYSTEM_PROMPT, RAMP_PROMPT, describeWhereUserIs, KIND_GLOSS } from './agentPrompt.js';
 import { KIND_LIST } from './graphWriteTools.js';
 
 test('the prompt carries the shared graph semantics', () => {
@@ -120,4 +120,14 @@ test('the prompt names the kinds the way the person sees them', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /Track/);
   assert.match(AGENT_SYSTEM_PROMPT, /Milestone/);
   assert.doesNotMatch(AGENT_SYSTEM_PROMPT, /kata|repeatable/i);
+});
+
+test('the ramp knows the idea was already asked for, and ends in plan_path', () => {
+  assert.match(RAMP_PROMPT, /already been asked/);
+  assert.match(RAMP_PROMPT, /plan_path/);
+});
+
+test('the ramp lets the person stop the questions', () => {
+  assert.match(RAMP_PROMPT, /хватит/iu);
+  assert.match(RAMP_PROMPT, /не знаю/iu);
 });

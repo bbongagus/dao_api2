@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import Anthropic from '@anthropic-ai/sdk';
 
 import { summariseStaged, shapeTurn, runGraphAgent } from './agent.js';
+import { AGENT_SYSTEM_PROMPT, RAMP_PROMPT } from './agentPrompt.js';
 
 /**
  * A runner shaped like the SDK's: `toolRunner()` hands one back synchronously,
@@ -475,6 +476,36 @@ test('nothing in the cached prefix changes between iterations of one turn', asyn
   await run();
 
   assert.equal(seen[0], seen[1], 'system, tool order and model must be byte-identical or the cache never reads');
+});
+
+test('a ramp turn adds its instructions after the system prompt, which stays byte-identical', async () => {
+  const sent = [];
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          sent.push(params.system);
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+
+  const run = (mode) => runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [], mode,
+    messages: [{ role: 'user', content: 'хочу накачаться' }], emit: noEmit,
+  });
+  await run(undefined);
+  await run('ramp');
+
+  const [ordinary, ramp] = sent;
+  assert.equal(ordinary.length, 1);
+  assert.equal(ramp.length, 2);
+  // The first block is what both modes share a cache read on.
+  assert.equal(JSON.stringify(ramp[0]), JSON.stringify(ordinary[0]));
+  assert.equal(ramp[0].text, AGENT_SYSTEM_PROMPT);
+  assert.equal(ramp[1].text, RAMP_PROMPT);
+  assert.deepEqual(ramp[1].cache_control, { type: 'ephemeral' });
 });
 
 test('update_node asks only for what a node without Kata can change', async () => {

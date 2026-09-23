@@ -27,6 +27,10 @@ const ChatRequest = z.object({
   currentPath: z.array(z.string().max(200)).max(50).default([]),
   // A graph id becomes part of a Redis key, where ':' separates the parts.
   graphId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).default('main'),
+  // A chat the person opened to work an idea out (agentPrompt.js, RAMP_PROMPT).
+  // An enum, not a string: it selects server-side instructions, and nothing
+  // the client sends may choose which.
+  mode: z.enum(['ramp']).optional(),
 });
 
 /**

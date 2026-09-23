@@ -95,6 +95,20 @@ test('the journal records what the turn cost, not just how long it took', async 
   assert.equal(entry.usage.calls, 3);
 });
 
+test('a ramp turn reaches the agent as one, and the journal says which it was', async (t) => {
+  let given = null;
+  const { calls, url } = serve(t, {
+    runAgent: async (params) => { given = params; return { type: 'text', message: 'Что именно?', usage: { calls: 1, dollars: 0.01 } }; },
+  });
+
+  await (await chat(url, { messages: [{ role: 'user', content: 'хочу накачаться' }], mode: 'ramp' })).text();
+  assert.equal(given.mode, 'ramp');
+  assert.equal(calls.journalled[0][2].mode, 'ramp');
+
+  await (await chat(url)).text();
+  assert.equal(given.mode, undefined);
+});
+
 test('a turn that failed is still charged for the calls it made', async (t) => {
   const { calls, url } = serve(t, {
     runAgent: async () => ({ type: 'error', message: 'rate limited', usage: { calls: 1, dollars: 0.01 } }),

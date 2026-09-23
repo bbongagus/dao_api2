@@ -69,7 +69,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
     if (!parsed.ok) {
       return res.status(400).json({ success: false, error: parsed.error });
     }
-    const { messages, currentPath, graphId } = parsed.value;
+    const { messages, currentPath, graphId, mode } = parsed.value;
 
     if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
       return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY is not set on the server' });
@@ -137,6 +137,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
         edges: graph?.edges || [],
         currentPath,
         messages,
+        mode,
         emit: (event) => { if (!aborted) emit(event); },
         onToolCall: (call) => toolCalls.push(call),
       });
@@ -169,6 +170,7 @@ export function setupAIRoutes({ getGraph, journal = null, ledger = null, runAgen
       journal?.record(userId, graphId, {
         kind: 'agent_turn',
         request: lastRequest?.content ?? null,
+        mode,
         model,
         ms: Date.now() - startedAt,
         aborted,

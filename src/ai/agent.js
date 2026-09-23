@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { buildAliasTable } from './aliases.js';
 import { createReadTools } from './graphReadTools.js';
 import { createWriteTools, KIND_LIST } from './graphWriteTools.js';
-import { AGENT_SYSTEM_PROMPT, describeWhereUserIs } from './agentPrompt.js';
+import { AGENT_SYSTEM_PROMPT, RAMP_PROMPT, describeWhereUserIs } from './agentPrompt.js';
 import { buildSourceBrief } from './sourceBrief.js';
 import { createUsageMeter } from './usageMeter.js';
 
@@ -78,7 +78,7 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 }
 
 export async function runGraphAgent({
-  client, model, nodes, edges = [], currentPath, messages, emit, onToolCall = () => {}, signal,
+  client, model, nodes, edges = [], currentPath, messages, mode, emit, onToolCall = () => {}, signal,
 }) {
   // Every upstream call this turn makes is added here — the link reader's up
   // to four and the loop's up to twelve — so the quota is charged for all of
@@ -296,8 +296,11 @@ export async function runGraphAgent({
       // tool calls and results, so iteration N reads what N-1 wrote. Without
       // it every one of up to twelve iterations re-billed the whole history.
       cache_control: { type: 'ephemeral' },
+      // A ramp adds its own block after the shared one rather than changing
+      // it, so both modes read the same cached prefix.
       system: [
         { type: 'text', text: AGENT_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        ...(mode === 'ramp' ? [{ type: 'text', text: RAMP_PROMPT, cache_control: { type: 'ephemeral' } }] : []),
       ],
       messages: [...opening, ...conversation],
       tools,
