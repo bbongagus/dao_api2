@@ -43,6 +43,9 @@ export const PRICES = {
   // OpenAI's own endpoint through OpenRouter (Azure US and Bedrock charge
   // 10% more and are not allowed by the routing this is priced for).
   'openai/gpt-6-luna': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.1 },
+  // The same model in OpenAI's "pro" reasoning mode: the same rates, with its
+  // hidden reasoning billed as output.
+  'openai/gpt-6-luna-pro': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.1 },
 
   // DeepInfra directly, by its own id, read from its model list on 2026-09-23.
   'zai-org/GLM-5.3-Flash': { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0.15 },
