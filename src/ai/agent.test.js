@@ -645,3 +645,39 @@ test('a thinking budget goes with the agent loop', async () => {
   });
   assert.equal('thinking' in sent, false, 'no budget, no thinking parameter at all');
 });
+
+test('a ramp that has asked its four questions is told to plan, in a system block of its own', async () => {
+  const seen = [];
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          seen.push(params);
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+  const turns = (asked) => [
+    { role: 'user', content: 'Хочу продвигать LinkedIn' },
+    ...Array.from({ length: asked }, (_, i) => [
+      { role: 'assistant', content: `Вопрос ${i + 1}?` },
+      { role: 'user', content: `Ответ ${i + 1}` },
+    ]).flat(),
+  ];
+  const run = (messages, mode) => runGraphAgent({
+    client, model: 'openai/gpt-6-luna', nodes: [], edges: [], currentPath: [], messages, mode, emit: noEmit,
+  });
+
+  await run(turns(3), 'ramp');
+  await run(turns(4), 'ramp');
+  await run(turns(4), undefined);
+
+  const blocks = seen.map((p) => p.system.map((b) => b.text));
+  assert.equal(blocks[0].length, 2, 'three questions asked: the ramp goes on');
+  assert.equal(blocks[1].length, 3, 'four asked: one more block');
+  assert.match(blocks[1][2], /plan_path/);
+  assert.equal(blocks[2].length, 1, 'no ramp, no ramp blocks');
+  // The cached blocks are untouched: the extra one comes after them, unmarked.
+  assert.equal(seen[1].system[2].cache_control, undefined);
+});

@@ -187,3 +187,9 @@ test('the ramp never asks the same question twice, and repeats count against the
   assert.match(RAMP_PROMPT, /repeats\s+included/);
   assert.match(RAMP_PROMPT, /plan\s+toward\s+the\s+likeliest/);
 });
+
+test('the ramp asks which idea first once, and its examples invent no money', () => {
+  assert.match(RAMP_PROMPT, /once:\s+if\s+the\s+answer\s+does\s+not\s+say/);
+  assert.match(RAMP_PROMPT, /name\s+no\s+amount\s+and\s+no\s+currency/);
+  assert.match(RAMP_PROMPT, /«заложил»/);
+});

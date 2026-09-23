@@ -23,6 +23,14 @@ import { createUsageMeter } from './usageMeter.js';
 const MAX_TOKENS = 16000;
 const MAX_ITERATIONS = 12;
 
+// The ramp asks at most this many questions before it plans (RAMP_PROMPT).
+export const RAMP_QUESTIONS = 4;
+
+// Said once the ramp's questions are spent. Some models do not count their
+// own questions across turns — GPT-6 Luna asked a fifth and a sixth and never
+// planned — so the server counts them.
+const RAMP_SPENT = `The ramp's ${RAMP_QUESTIONS} questions have been asked in this chat. Unless a plan was already proposed in it, ask nothing more: plan now with \`plan_path\` from what you know, and say in a clause what you assumed.`;
+
 // A single exchange should not be able to rewrite the whole graph.
 export const MAX_OPERATIONS = 30;
 
@@ -282,6 +290,8 @@ export async function runGraphAgent({
 
   const firstUser = messages.findIndex((m) => m.role === 'user');
   const conversation = firstUser === -1 ? [] : messages.slice(firstUser);
+  const rampSpent = mode === 'ramp'
+    && conversation.filter((m) => m.role === 'assistant').length >= RAMP_QUESTIONS;
 
   emit({ type: 'status', text: 'thinking' });
 
@@ -307,6 +317,8 @@ export async function runGraphAgent({
       system: [
         { type: 'text', text: AGENT_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
         ...(mode === 'ramp' ? [{ type: 'text', text: RAMP_PROMPT, cache_control: { type: 'ephemeral' } }] : []),
+        // After the cached blocks and unmarked, so the prefix they cache is unchanged.
+        ...(rampSpent ? [{ type: 'text', text: RAMP_SPENT }] : []),
       ],
       messages: [...opening, ...conversation],
       tools,
