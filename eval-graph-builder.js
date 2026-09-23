@@ -11,7 +11,12 @@
  *
  * It costs one agent turn per goal. Run it before and after a prompt change.
  *
- * Usage: node --env-file=.env eval-graph-builder.js [baseUrl] [label]
+ * Usage: node --env-file=.env eval-graph-builder.js [baseUrl] [label] [goals.json]
+ *
+ * The built-in goals are the ones the prompt was tuned on, so a perfect score
+ * on them can flatter it. eval-goals-holdout.json holds goals nobody tuned
+ * against; pass it as the third argument to see how a prompt or a model does
+ * on something new.
  */
 
 import fs from 'fs';
@@ -22,10 +27,11 @@ import { devTokenFromEnv } from './src/auth/devToken.js';
 
 const BASE = process.argv[2] || 'http://localhost:3011';
 const LABEL = process.argv[3] || 'run';
+const GOALS_FILE = process.argv[4];
 const redis = new Redis({ host: 'localhost', port: 6379 });
 const stamp = Date.now();
 
-const GOALS = [
+const TUNED_GOALS = [
   {
     key: 'citizenship', merge: true,
     text: 'Хочу получить болгарское гражданство по происхождению, живу в Белграде. Запись в консульство занята до 2028 года, поэтому план такой: найти человека в Болгарии, который пропишет меня у себя, получить визу D по происхождению и подаваться уже из Болгарии. Построй план.',
@@ -47,6 +53,8 @@ const GOALS = [
     text: 'Построй план запуска небольшого SaaS для учёта привычек: от проверки идеи до первых платящих пользователей.',
   },
 ];
+
+const GOALS = GOALS_FILE ? JSON.parse(fs.readFileSync(GOALS_FILE, 'utf8')) : TUNED_GOALS;
 
 /** Drive one turn and collect every event it emitted. */
 async function turn(userId, text) {
