@@ -15,6 +15,7 @@
  * to RAMP_PROMPT; eval-graph-builder.js still measures the ordinary chat.
  *
  * Usage: node --env-file=.env eval-idea-ramp.js [baseUrl] [label]
+ *        EVAL_ONLY=camper,gym … to run some wishes only
  *        node eval-idea-ramp.js --rejudge eval-results/<file>.json
  *        (the checks of today over a saved run — free, for a new check)
  */
@@ -68,7 +69,24 @@ const WISHES = [
     answers: ['Начать бегать', 'Не знаю', 'Не знаю', 'Не знаю'],
     startsFrom: null,
   },
+  {
+    // A friend's real ramp, 2026-09-23: they wanted to *try* living in a van,
+    // and got buy → convert → a test trip → give up the flat.
+    key: 'camper',
+    answers: [
+      'Хочу дом на колёсах — минивэн',
+      'Попробовать пожить в таком доме вместо квартиры, каково это',
+      'Машины нет, нужно найти',
+      '5000 евро, время — выходные',
+    ],
+    startsFrom: /попроб|нет машин|машины нет|5000|5 000/i,
+    // A trial, and no purchase that does not wait on it along the arrows. A
+    // plan that stops at "decide whether to go on" buys nothing, and passes.
+    trialBefore: { trial: /аренд|прокат/i, commit: /купить|покупк|куплен/i },
+  },
 ];
+
+const ONLY = (process.env.EVAL_ONLY || '').split(',').map((k) => k.trim()).filter(Boolean);
 
 /** Drive one turn of a ramp chat and collect every event it emitted. */
 async function turn(userId, messages) {
@@ -128,6 +146,38 @@ const isQuestion = (result) => result?.type === 'text' && result.message.include
 // lecture, not a long-ish question.
 const isShort = (result) => (result?.message || '').length <= 320;
 
+/**
+ * Whether the plan tries before it commits: some node titled like `trial`,
+ * and every node titled like `commit` reached from one along the arrows.
+ */
+function triesFirst(operations, trial, commit) {
+  const adds = operations.filter((o) => o.op === 'add');
+  if (!adds.some((o) => trial.test(o.title))) return false;
+  return adds
+    .filter((o) => commit.test(o.title) && !trial.test(o.title))
+    .every((o) => reachedFrom(operations, trial, o.alias));
+}
+
+/** Whether some node titled like `from` reaches the node `target` along the plan's arrows. */
+function reachedFrom(operations, from, target) {
+  const adds = operations.filter((o) => o.op === 'add');
+  const next = new Map(adds.map((o) => [o.alias, [...(o.downstream || [])]]));
+  for (const link of operations.filter((o) => o.op === 'link')) next.get(link.source)?.push(link.target);
+  // A step's checklist sits inside it; reaching the step reaches its items.
+  for (const o of adds) if (o.parent && next.has(o.parent)) next.get(o.parent).push(o.alias);
+  const starts = adds.filter((o) => from.test(o.title)).map((o) => o.alias);
+  const seen = new Set();
+  const queue = [...starts];
+  while (queue.length) {
+    const at = queue.shift();
+    if (seen.has(at)) continue;
+    seen.add(at);
+    if (at === target) return true;
+    queue.push(...(next.get(at) || []));
+  }
+  return false;
+}
+
 function judge(wish, turns) {
   const last = turns.at(-1);
   const planned = last.result?.type === 'changes' && last.statuses.some((s) => s.startsWith('planning '));
@@ -152,6 +202,7 @@ function judge(wish, turns) {
   if (wish.stopAt) checks.push(['plans on the turn it is told to', planned && turns.length === wish.stopAt]);
   if (wish.startsFrom) checks.push(['the section says where they start', planned && wish.startsFrom.test(section?.description || '')]);
   if (wish.others) checks.push([`keeps the other ${wish.others} ideas as tasks`, planned && others.length === wish.others]);
+  if (wish.trialBefore) checks.push(['tries it before it commits to it', planned && triesFirst(operations, wish.trialBefore.trial, wish.trialBefore.commit)]);
 
   return { checks, shape, operations, section, others, said };
 }
@@ -183,7 +234,7 @@ async function main() {
   // A throw anywhere in here must still leave Redis clean: the cleanup and
   // disconnect below are what throw this run's eval-ramp-*-<stamp> users away.
   try {
-    for (const wish of WISHES) {
+    for (const wish of WISHES.filter((w) => ONLY.length === 0 || ONLY.includes(w.key))) {
       const user = `eval-ramp-${wish.key}-${stamp}`;
       await redis.set(`user:${user}:graph:main`, JSON.stringify({
         nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, version: 1, userId: user,

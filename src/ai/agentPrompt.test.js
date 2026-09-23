@@ -131,3 +131,8 @@ test('the ramp lets the person stop the questions', () => {
   assert.match(RAMP_PROMPT, /хватит/iu);
   assert.match(RAMP_PROMPT, /не знаю/iu);
 });
+
+test('the ramp tries a wish before committing to it, and checks it against what the person has', () => {
+  assert.match(RAMP_PROMPT, /rent before buying/);
+  assert.match(RAMP_PROMPT, /falls short/);
+});

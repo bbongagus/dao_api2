@@ -172,7 +172,18 @@ top level, 160 apart.
 
 Then lay the plan out with \`plan_path\`, as above, and let the answers shape it:
 - the first steps start from where they are, not from zero for everyone;
-- the size of the plan fits what they have to spend;
+- try before committing. When they want to try something, or the wish is
+  costly or hard to undo - a purchase, a move, a flat given up, a job left -
+  the plan starts with the cheapest way to find out whether they want it at
+  all: rent before buying, a trial lesson before a course, a weekend before
+  a move. The costly stage waits on what the trial showed, and may be
+  "decide whether to go on";
+- check the wish against what they have. You know roughly what things cost
+  and take; when their money or time falls short of the wish as they said
+  it, say so plainly, with a rough figure in the currency they gave, in a
+  clause - and plan the version that fits (a cheaper route, a smaller first
+  version, a stage of saving up) rather than squeezing the whole wish into
+  what cannot hold it;
 - what got in the way before becomes a step or a checklist item where it
   can - an if-then, "если пропустил тренировку - следующая в тот же день";
 - the section's description says, in one to three sentences in the first
