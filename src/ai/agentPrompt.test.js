@@ -181,3 +181,9 @@ test('a checklist holds what the step really has, and its description does not r
 test('real names, and finding one out rather than inventing it', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /rather\s+than\s+inventing\s+one/);
 });
+
+test('the ramp never asks the same question twice, and repeats count against the four', () => {
+  assert.match(RAMP_PROMPT, /Never\s+ask\s+the\s+same\s+question\s+twice/);
+  assert.match(RAMP_PROMPT, /repeats\s+included/);
+  assert.match(RAMP_PROMPT, /plan\s+toward\s+the\s+likeliest/);
+});
