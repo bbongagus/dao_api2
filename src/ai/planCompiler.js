@@ -15,7 +15,6 @@
 
 import { KIND_TO_TYPES } from './graphReadTools.js';
 
-export const MAX_PLAN_NODES = 40;
 export const COLUMN = 380;
 export const ROW = 160;
 
@@ -110,9 +109,10 @@ export function compilePlan(plan, { nodes = [], aliases }) {
     stageById.set(id, stage);
   }
 
-  // EXPERIMENT (exp/no-plan-limit): no node limit, to see what size plans
-  // come out when nothing refuses them. MAX_PLAN_NODES stays exported for
-  // whoever puts a limit back.
+  // No limit on size. There was one, 40 nodes counting checklist items,
+  // set before checklists moved inside their card; it refused plans whose
+  // canvas held 17-24 cards, and each retry cost a whole plan's worth of
+  // output. The eval's fit check watches the cards on the canvas instead.
 
   for (const [id, stage] of stageById) {
     for (const dep of ids(stage.after)) {
