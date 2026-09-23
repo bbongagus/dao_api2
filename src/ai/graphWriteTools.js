@@ -205,12 +205,22 @@ export function createWriteTools(nodes, aliases, edges = []) {
 
       plan(input) {
         // One plan per turn: a second would mint the same plan: aliases, and
-        // two plans at once is not something a person can review. This is a
-        // dedicated flag rather than "does minted hold a plan: alias" — the
-        // latter also matches an ordinary add() that happened to reuse the
-        // plan: prefix, which is the alias-collision case below, not this one.
+        // two plans at once is not something a person can review. A second
+        // call replaces the first rather than being refused — a model that
+        // tried the tool out with a throwaway plan was otherwise stuck with
+        // it, and the person was shown the throwaway. It cannot replace a
+        // plan that other staged changes already point at: those would be
+        // left pointing at nothing. This is a dedicated flag rather than
+        // "does minted hold a plan: alias" — the latter also matches an
+        // ordinary add() that reused the plan: prefix, which is the
+        // alias-collision case below, not this one.
+        const earlier = planStaged ? staged.filter((o) => o.plan) : [];
+        const earlierAliases = new Set(earlier.filter((o) => o.op === 'add').map((o) => o.alias));
         if (planStaged) {
-          return 'A plan is already staged in this turn. Adjust it with the other tools, or ask for a new plan next turn.';
+          const leaning = staged.some((o) => !o.plan && [o.parent, o.source, o.target].some((ref) => earlierAliases.has(ref)));
+          if (leaning) {
+            return 'A plan is already staged in this turn, and other staged changes point at its nodes. Adjust it with the other tools, or ask for a new plan next turn.';
+          }
         }
 
         const section = typeof input?.section === 'string' ? input.section.trim() : '';
@@ -229,9 +239,17 @@ export function createWriteTools(nodes, aliases, edges = []) {
         // silently overwritten in `minted` instead of refused, the way
         // add() itself refuses a repeat alias.
         for (const operation of compiled.operations) {
-          if (operation.op === 'add' && (minted.has(operation.alias) || aliases.nodeAt(operation.alias))) {
+          const takenThisTurn = minted.has(operation.alias) && !earlierAliases.has(operation.alias);
+          if (operation.op === 'add' && (takenThisTurn || aliases.nodeAt(operation.alias))) {
             return `The alias ${operation.alias} is already taken in this turn. Rename the node you added, or give the stage another id.`;
           }
+        }
+
+        // Only now, with the new plan known to be good, does the old one go.
+        for (const operation of earlier) {
+          staged.splice(staged.indexOf(operation), 1);
+          if (operation.op === 'add') minted.delete(operation.alias);
+          if (operation.op === 'link') stagedLinks.delete(pair(operation.source, operation.target));
         }
 
         for (const operation of compiled.operations) {
@@ -244,7 +262,8 @@ export function createWriteTools(nodes, aliases, edges = []) {
         const now = compiled.startNow.length
           ? ` Can start now: ${compiled.startNow.map((title) => `"${title}"`).join(', ')}.`
           : '';
-        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}`;
+        const replaced = earlier.length ? ' It replaces the plan staged earlier in this turn.' : '';
+        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}${replaced}`;
       },
     },
   };

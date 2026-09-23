@@ -455,10 +455,39 @@ test('a refused plan stages nothing and passes on why', () => {
   assert.match(said, /no stage called ghost/);
 });
 
-test('only one plan is staged per turn', () => {
+test('a second plan in the same turn replaces the first — one plan is ever staged', () => {
+  const { tools, staged } = make();
+
+  // A model that tries plan_path out with a throwaway plan first must not be
+  // stuck with it: the person would be shown the throwaway.
+  tools.plan({ section: '', sectionTitle: 'test', sectionDescription: '', stages: [
+    { id: 'probe', title: 'Test stage', description: '', after: [], steps: [{ id: 's', title: 'Test step', description: '', after: [], checklist: [] }] },
+  ] });
+  const said = tools.plan(move);
+
+  assert.match(said, /^Staged:/);
+  assert.match(said, /replaces the plan staged earlier/);
+  assert.ok(staged.every((o) => o.plan === true));
+  assert.ok(!staged.some((o) => /test/i.test(o.title || '')), 'nothing of the first plan is left');
+  assert.equal(staged.filter((o) => o.op === 'add' && o.alias === 'plan:section').length, 1);
+});
+
+test('a refused second plan leaves the first one staged', () => {
   const { tools, staged } = make();
 
   tools.plan(move);
+  const before = [...staged];
+  const said = tools.plan({ ...move, stages: [{ ...move.stages[1], after: ['ghost'] }] });
+
+  assert.match(said, /no stage called ghost/);
+  assert.deepEqual(staged, before);
+});
+
+test('a plan other changes already point at is not replaced', () => {
+  const { tools, staged } = make();
+
+  tools.plan(move);
+  tools.link({ source: 'n3', target: 'plan:visa:find' });
   const before = staged.length;
   const said = tools.plan(move);
 
