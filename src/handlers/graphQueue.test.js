@@ -62,11 +62,20 @@ test('draining waits for what is still running — a shutdown must not cut a sav
 
 test('draining gives up after its timeout rather than hanging the shutdown', async () => {
   const queue = createGraphQueue();
+  // In a shutdown the server and Redis hold the process open; drain's own
+  // timer is unref'd and must not. With nothing else alive, Node 22's runner
+  // sees an empty event loop and cancels this test — and the next — before
+  // the timer fires (Node 25 does not). This stands in for the server.
+  const server = setInterval(() => {}, 1000);
 
-  queue.enqueue('u:main', () => new Promise(() => {})).catch(() => {});
-  const result = await queue.drain({ timeoutMs: 30 });
+  try {
+    queue.enqueue('u:main', () => new Promise(() => {})).catch(() => {});
+    const result = await queue.drain({ timeoutMs: 30 });
 
-  assert.equal(result.timedOut, true);
+    assert.equal(result.timedOut, true);
+  } finally {
+    clearInterval(server);
+  }
 });
 
 test('draining an idle queue returns at once', async () => {
