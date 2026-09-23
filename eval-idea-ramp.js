@@ -15,6 +15,8 @@
  * to RAMP_PROMPT; eval-graph-builder.js still measures the ordinary chat.
  *
  * Usage: node --env-file=.env eval-idea-ramp.js [baseUrl] [label]
+ *        node eval-idea-ramp.js --rejudge eval-results/<file>.json
+ *        (the checks of today over a saved run — free, for a new check)
  */
 
 import fs from 'fs';
@@ -114,6 +116,13 @@ async function converse(userId, wish) {
   return turns;
 }
 
+// Russian only: the panel's own opening says «вы», and so should the agent.
+// Word edges by hand — \b in a JavaScript regex knows only ASCII letters.
+const word = (alternatives) => new RegExp(`(?<![а-яё])(${alternatives})(?![а-яё])`, 'iu');
+const SAYS_TY = word('ты|тебя|тебе|тобой|твой|твоя|твоё|твои|твоего|твоей|[а-яё]+(?:ешь|ёшь|ишь)');
+// Nothing is applied until the person confirms: a plan is proposed, not done.
+const REPORTS_DONE = word('собрал|построил|заложил|составил|сделал|разбил');
+
 const isQuestion = (result) => result?.type === 'text' && result.message.includes('?');
 // One short sentence with a few example answers — generous, so it catches a
 // lecture, not a long-ish question.
@@ -129,8 +138,12 @@ function judge(wish, turns) {
   const section = operations.find((o) => o.alias === 'plan:section');
   const others = operations.filter((o) => o.op === 'add' && !o.alias.startsWith('plan:') && o.nodeType === 'dao' && !o.parent);
 
+  const agentSaid = turns.map((t) => (t.result?.type === 'text' ? t.result.message : t.result?.summary || '')).join('\n');
+
   const checks = [
     ['asks before it plans', turns[0].result?.type === 'text' && isQuestion(turns[0].result)],
+    ['says «вы», as the panel does', !SAYS_TY.test(agentSaid)],
+    ['proposes the plan, does not report it done', planned && !REPORTS_DONE.test(said)],
     ['every question is short, and one', asked.every((r) => isQuestion(r) && isShort(r) && (r.message.match(/\?/g) || []).length <= 2)],
     [`plans within ${MAX_TURNS} turns`, planned],
     ['no task counted twice, no empty Mi', planned && shape.doubleCounted.length === 0 && shape.miWithoutTasks === 0],
@@ -141,6 +154,24 @@ function judge(wish, turns) {
   if (wish.others) checks.push([`keeps the other ${wish.others} ideas as tasks`, planned && others.length === wish.others]);
 
   return { checks, shape, operations, section, others, said };
+}
+
+/** Today's checks over a saved run, without a single upstream call. */
+function rejudge(file) {
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  let passed = 0;
+  let total = 0;
+  for (const entry of saved.report) {
+    const wish = WISHES.find((w) => w.key === entry.wish);
+    if (!wish || !entry.turns) continue;
+    console.log(`\n── ${entry.wish}`);
+    for (const [name, ok] of judge(wish, entry.turns).checks) {
+      console.log(`  ${ok ? '✅' : '❌'} ${name}`);
+      total += 1;
+      if (ok) passed += 1;
+    }
+  }
+  console.log(`\n${passed}/${total} checks passed (rejudged ${file})`);
 }
 
 async function main() {
@@ -201,4 +232,9 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[2] === '--rejudge') {
+  rejudge(process.argv[3]);
+  redis.disconnect();
+} else {
+  main();
+}
