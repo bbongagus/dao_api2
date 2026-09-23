@@ -166,9 +166,11 @@ test('the last stage is the goal reached, not the activity toward it', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /The\s+last\s+stage\s+is\s+the\s+goal\s+itself,\s+reached/);
 });
 
-test("the person's own route is planned, and a legal doubt is said once where it applies", () => {
-  assert.match(AGENT_SYSTEM_PROMPT, /plan\s+that\s+route/);
-  assert.match(AGENT_SYSTEM_PROMPT, /do\s+not\s+rebuild\s+the\s+plan\s+around\s+the\s+doubt/);
+test("the person's own route is planned, and a legal condition lives in the one step it concerns", () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /plan\s+that\s+route:\s+it\s+is\s+their\s+decision/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Nowhere\s+else/);
+  assert.match(AGENT_SYSTEM_PROMPT, /reads\s+as\s+distrust/);
+  assert.match(AGENT_SYSTEM_PROMPT, /beginning\s+with\s+the\s+plan\s+itself/);
 });
 
 test('a checklist holds what the step really has, and its description does not repeat it', () => {
