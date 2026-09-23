@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { describeProposalShape } from './graphShape.js';
+import { describeProposalShape, garbledWords } from './graphShape.js';
 
 const add = (alias, nodeType, nodeSubtype, extra = {}) => ({
   op: 'add', alias, parent: 'sec', title: alias, description: '',
@@ -109,4 +109,46 @@ test('checklist items inside a step are not tasks on the canvas', () => {
 
   assert.deepEqual(shape.startNow, ['step']);
   assert.deepEqual(shape.overlaps, []);
+});
+
+// A1 → M1, B1 → M2 ; M1 → c, M2 → c ; c → M3   (two stages side by side, a third waits for both)
+const sideBySide = [
+  section,
+  add('a1', 'dao', 'simple', { x: 0, y: 0 }),
+  add('M1', 'fundamental', 'upstream', { x: 380, y: 0 }),
+  add('b1', 'dao', 'simple', { x: 0, y: 160 }),
+  add('M2', 'fundamental', 'upstream', { x: 380, y: 160 }),
+  add('c', 'dao', 'withChildren', { x: 760, y: 80 }),
+  add('c1', 'dao', 'simple', { parent: 'c' }),
+  add('c2', 'dao', 'simple', { parent: 'c' }),
+  add('M3', 'fundamental', 'upstream', { x: 1140, y: 80 }),
+  link('a1', 'M1'), link('b1', 'M2'), link('M1', 'c'), link('M2', 'c'), link('c', 'M3'),
+];
+
+test('a stage that waits for two others is a stage-level merge; a step waiting on two steps is not', () => {
+  assert.equal(describeProposalShape(sideBySide).stageMerges, 1);
+  // In `staged`, c waits for M1 and for the step d: a merge, but only one stage feeds it.
+  assert.equal(describeProposalShape(staged).stageMerges, 0);
+  assert.equal(describeProposalShape(staged).merges, 1);
+});
+
+test('the canvas count leaves out checklist items, which live inside their card', () => {
+  const shape = describeProposalShape(sideBySide);
+  assert.equal(shape.nodes, 9);
+  assert.equal(shape.canvasNodes, 7);
+});
+
+test('text a person would read as broken is found: CJK characters, words mixing two alphabets', () => {
+  assert.deepEqual(garbledWords('База: LLM API и Python/TypeScript工具'), ['TypeScript工具']);
+  assert.deepEqual(garbledWords('Вточуить качество, Индоеptic интервью, показа наImageView'), ['Индоеptic', 'наImageView']);
+  assert.deepEqual(garbledWords('Подключить MCP-сервер к Claude Desktop, прогнать evals в CI'), []);
+  assert.deepEqual(garbledWords(''), []);
+});
+
+test('the shape lists broken words in titles and descriptions', () => {
+  const shape = describeProposalShape([
+    section,
+    add('x', 'dao', 'simple', { title: 'Шаг communityчина', description: 'нормальный текст' }),
+  ]);
+  assert.deepEqual(shape.garbled, ['communityчина']);
 });

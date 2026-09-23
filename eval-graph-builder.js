@@ -22,7 +22,7 @@
 import fs from 'fs';
 import Redis from 'ioredis';
 
-import { describeProposalShape } from './src/ai/graphShape.js';
+import { describeProposalShape, garbledWords } from './src/ai/graphShape.js';
 import { devTokenFromEnv } from './src/auth/devToken.js';
 
 const BASE = process.argv[2] || 'http://localhost:3011';
@@ -31,28 +31,11 @@ const GOALS_FILE = process.argv[4];
 const redis = new Redis({ host: 'localhost', port: 6379 });
 const stamp = Date.now();
 
-const TUNED_GOALS = [
-  {
-    key: 'citizenship', merge: true,
-    text: 'Хочу получить болгарское гражданство по происхождению, живу в Белграде. Запись в консульство занята до 2028 года, поэтому план такой: найти человека в Болгарии, который пропишет меня у себя, получить визу D по происхождению и подаваться уже из Болгарии. Построй план.',
-  },
-  {
-    key: 'career', merge: false,
-    text: 'Построй план перехода в Applied AI Engineer за шесть месяцев: агенты, MCP, evals, RAG, продакшен-агенты, портфолио и поиск работы.',
-  },
-  {
-    key: 'move', merge: true,
-    text: 'Построй план переезда в Португалию с семьёй через полгода: виза, удалённая работа, жильё, школа для ребёнка, сам переезд.',
-  },
-  {
-    key: 'language', merge: false,
-    text: 'Построй план, как выучить испанский с нуля до B2 за год и сдать DELE.',
-  },
-  {
-    key: 'product', merge: false,
-    text: 'Построй план запуска небольшого SaaS для учёта привычек: от проверки идеи до первых платящих пользователей.',
-  },
-];
+// The goals the prompt was tuned on. `merge`: the goal has a point where
+// parallel work meets. `parallel`: whole stages of it can run side by side
+// and meet later — documents and a host for the address, the edit and the
+// cover — so a plan that is one chain of stages misstates what can start.
+const TUNED_GOALS = JSON.parse(fs.readFileSync(new URL('./eval-goals-tuned.json', import.meta.url), 'utf8'));
 
 const GOALS = GOALS_FILE ? JSON.parse(fs.readFileSync(GOALS_FILE, 'utf8')) : TUNED_GOALS;
 
@@ -120,8 +103,11 @@ function judge(goal, { statuses, result, ms }) {
       ['a merge point', proposed && (goal.merge ? shape.merges > 0 : true)],
       ['no task counted twice, no empty Mi', proposed && shape.doubleCounted.length === 0 && shape.miWithoutTasks === 0],
       ['names what can start now', proposed && shape.startNow.length > 0 && shape.startNow.some((t) => said.includes(t))],
-      ['fits: no overlap, 1–40 nodes', proposed && shape.overlaps.length === 0 && shape.nodes <= 40],
+      // Checklist items live inside their card, so only cards take room.
+      ['fits: no overlap, 1–40 cards on the canvas', proposed && shape.overlaps.length === 0 && shape.canvasNodes <= 40],
       ['no endless habit beside a milestone', proposed && shape.habitsBesideMilestones.length === 0],
+      ['stages run side by side where the goal allows', proposed && (goal.parallel ? shape.stageMerges > 0 : true)],
+      ['no broken words', proposed && shape.garbled.length === 0 && garbledWords(said).length === 0],
     ],
   };
 }
@@ -163,7 +149,8 @@ async function main() {
       } catch (error) {
         console.log(`  💥 ${error.message}`);
         report.push({ goal: goal.key, error: error.message });
-        total += 7;
+        // A turn that failed fails every check, however many there are.
+        total += judge(goal, { statuses: [], result: null, ms: 0 }).checks.length;
         continue;
       }
 

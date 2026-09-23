@@ -8,6 +8,22 @@
  */
 
 const isTaskKind = (o) => o?.nodeType === 'dao' || o?.nodeType === 'repeatable';
+
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/u;
+const CYRILLIC = /\p{Script=Cyrillic}/u;
+const LATIN = /\p{Script=Latin}/u;
+
+/**
+ * Words a person would read as broken: any with CJK characters in it, and
+ * any that mixes Cyrillic and Latin letters ("наImageView", "общинe" with a
+ * Latin e). A model served at low precision produces both, and a share of
+ * Cyrillic letters does not notice them. A real brand spelt across both
+ * alphabets (ЮKassa) is flagged too — rare enough to read past.
+ */
+export function garbledWords(text = '') {
+  const words = String(text).match(/[\p{L}\p{M}]+/gu) || [];
+  return [...new Set(words.filter((w) => CJK.test(w) || (CYRILLIC.test(w) && LATIN.test(w))))];
+}
 const MILESTONE = new Set(['upstream', 'downstream']);
 
 export function describeProposalShape(operations = []) {
@@ -62,9 +78,15 @@ export function describeProposalShape(operations = []) {
 
   return {
     nodes: adds.length,
+    // What takes room on the canvas; checklist items live inside their card.
+    canvasNodes: canvas.length,
     arrows: arrows.length,
     merges: adds.filter((o) => onCanvas(o) && incoming(o.alias).length > 1).length,
     stageLinks: arrows.filter(([source, target]) => isMi(source) && isTask(target)).length,
+    // A stage that waits for two or more others: stages that ran side by side
+    // and meet here. A step waiting on two steps of its own stage is a merge,
+    // but not this one — a plan of one long chain of stages can have those.
+    stageMerges: adds.filter((o) => onCanvas(o) && new Set(incoming(o.alias).filter(isMi)).size > 1).length,
     kaiIntoKai: arrows.filter(([source, target]) => isKai(source) && isKai(target)).length,
     doubleCounted: [...countedBy].filter(([, n]) => n > 1).map(([alias]) => byAlias.get(alias).title),
     miWithoutTasks,
@@ -72,6 +94,7 @@ export function describeProposalShape(operations = []) {
       .filter((o) => isTask(o.alias) && incoming(o.alias).every((s) => !isTask(s) && !isMi(s)))
       .map((o) => o.title),
     overlaps,
+    garbled: [...new Set(adds.flatMap((o) => garbledWords(`${o.title || ''} ${o.description || ''}`)))],
     habitsBesideMilestones: adds
       .filter((o) => o.nodeSubtype === 'infinity'
         && adds.some((m) => m.nodeType === 'fundamental' && MILESTONE.has(m.nodeSubtype)
