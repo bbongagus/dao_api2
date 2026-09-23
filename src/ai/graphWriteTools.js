@@ -223,13 +223,18 @@ export function createWriteTools(nodes, aliases, edges = []) {
           }
         }
 
-        const section = typeof input?.section === 'string' ? input.section.trim() : '';
+        // A model shown `"" for a new section` sometimes sends the quotes
+        // themselves; a pair of quotes names no node, so it means none.
+        const section = typeof input?.section === 'string' ? input.section.trim().replace(/^(["'`])\1$/, '') : '';
         if (section) {
           const found = resolve(section);
           if (found?.error) return found.error;
+          if (found && !found.node) {
+            return `${section} is being added in this same turn, and a plan cannot go inside a node that does not exist yet. Leave section empty and give a sectionTitle: the plan makes its own section.`;
+          }
         }
 
-        const compiled = compilePlan(input, { nodes, aliases });
+        const compiled = compilePlan({ ...input, section }, { nodes, aliases });
         if (compiled.error) return compiled.error;
 
         // compilePlan only knows the plan's own aliases are internally

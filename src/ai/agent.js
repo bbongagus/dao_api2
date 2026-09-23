@@ -246,7 +246,7 @@ export async function runGraphAgent({
       name: 'plan_path',
       description: 'Lay out a plan as stages and the steps inside them. The server turns it into milestones, arrows and positions. Nothing is created until the person confirms.',
       inputSchema: z.object({
-        section: z.string().describe('Alias of the ryu to build inside, or "" to create a new section'),
+        section: z.string().describe('Alias of an existing ryu to build inside; leave it empty to create a new section'),
         sectionTitle: z.string().describe('Title of the new section when section is ""'),
         sectionDescription: z.string(),
         stages: z.array(z.object({

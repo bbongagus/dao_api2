@@ -520,3 +520,22 @@ test('a plan refuses when one of its aliases was already minted earlier in the t
   assert.equal(staged.length, 1, 'nothing from the plan is staged');
   assert.match(said, /plan:visa/);
 });
+
+test('a section given as a pair of quotes means a new section — a model copies the "" it was shown', () => {
+  for (const section of ['""', '"" ', '""\n', "''"]) {
+    const { tools, staged } = make();
+    const said = tools.plan({ ...move, section });
+    assert.match(said, /^Staged:/, JSON.stringify(section));
+    assert.ok(staged.some((o) => o.alias === 'plan:section'), 'a new section is made');
+  }
+});
+
+test('a plan cannot go inside a section added in the same turn, and is told what to do instead', () => {
+  const { tools } = make();
+
+  tools.add({ alias: 'remont', parent: '', title: 'Ремонт', description: '', kind: 'ryu', x: 0, y: 0 });
+  const said = tools.plan({ ...move, section: 'remont' });
+
+  assert.match(said, /same turn/);
+  assert.match(said, /sectionTitle/);
+});

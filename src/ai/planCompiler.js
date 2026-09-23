@@ -51,7 +51,7 @@ export function compilePlan(plan, { nodes = [], aliases }) {
     const section = aliases.nodeAt(sectionAlias);
     if (!section) return { error: `There is no node called ${sectionAlias}.` };
     if (section.nodeType !== 'fundamental' || section.nodeSubtype !== 'category') {
-      return { error: `${sectionAlias} is not a ryu. A plan goes inside a ryu: give its alias, or section "" with a sectionTitle for a new one.` };
+      return { error: `${sectionAlias} is not a ryu. A plan goes inside a ryu: give its alias, or leave section empty and give a sectionTitle for a new one.` };
     }
     parent = section.id;
     const inside = list(section.children);
@@ -59,7 +59,7 @@ export function compilePlan(plan, { nodes = [], aliases }) {
   } else {
     const title = text(plan?.sectionTitle);
     if (!title) {
-      return { error: 'Say where the plan goes: the alias of a ryu as section, or section "" with a sectionTitle for a new one.' };
+      return { error: 'Say where the plan goes: the alias of a ryu as section, or an empty section and a sectionTitle for a new one.' };
     }
     const tops = list(nodes).map((n) => n.position?.y ?? 0);
     operations.push({
