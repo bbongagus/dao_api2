@@ -50,6 +50,7 @@ const GOALS = [
 
 /** Drive one turn and collect every event it emitted. */
 async function turn(userId, text) {
+  const startedAt = Date.now();
   const response = await fetch(`${BASE}/api/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await devTokenFromEnv(userId)}` },
@@ -76,10 +77,18 @@ async function turn(userId, text) {
   return {
     statuses: events.filter((e) => e.type === 'status').map((e) => e.text),
     result: events.find((e) => e.type === 'result')?.result || events.find((e) => e.type === 'error'),
+    ms: Date.now() - startedAt,
   };
 }
 
-function judge(goal, { statuses, result }) {
+/** Every goal is asked in Russian; a reply in another language is a failure a person would notice first. */
+const inRussian = (text) => {
+  const letters = text.match(/\p{L}/gu) || [];
+  const cyrillic = text.match(/\p{Script=Cyrillic}/gu) || [];
+  return letters.length > 0 && cyrillic.length / letters.length > 0.6;
+};
+
+function judge(goal, { statuses, result, ms }) {
   const operations = result?.type === 'changes' ? result.operations : [];
   const shape = describeProposalShape(operations);
   const said = `${result?.summary || ''} ${result?.message || ''}`;
@@ -92,6 +101,11 @@ function judge(goal, { statuses, result }) {
     operations,
     shape,
     said,
+    ms,
+    usage: result?.usage ?? null,
+    outcome: result?.type ?? 'nothing',
+    // Titles as a whole, not one by one: "DELE B2" is a fine title in a Russian plan.
+    russian: inRussian(said) && inRussian(operations.filter((o) => o.op === 'add').map((o) => o.title).join(' ') || 'пусто'),
     checks: [
       ['used plan_path', proposed && statuses.some((s) => s.startsWith('planning '))],
       ['a stage waits for another', proposed && shape.stageLinks > 0],
@@ -122,6 +136,7 @@ async function main() {
   const report = [];
   let passed = 0;
   let total = 0;
+  const spent = { dollars: 0, ms: 0, russian: 0 };
 
   // A throw anywhere in here — a bad turn, a full disk on the write — must
   // still leave Redis clean; this run's eval-*-<stamp> users are throwaway,
@@ -153,13 +168,21 @@ async function main() {
       console.log(`  ${shape.nodes} nodes, ${shape.arrows} arrows, ${shape.merges} merges, ${shape.stageLinks} stage links; start now: ${shape.startNow.join(', ') || '—'}`);
       console.log(outline(verdict.operations));
       console.log(`  said: ${verdict.said.replace(/\s+/g, ' ').slice(0, 300)}`);
-      report.push({ goal: goal.key, checks: verdict.checks, shape, said: verdict.said, operations: verdict.operations });
+      const dollars = verdict.usage?.dollars ?? 0;
+      spent.dollars += dollars;
+      spent.ms += verdict.ms;
+      if (verdict.russian) spent.russian += 1;
+      console.log(`  ${verdict.outcome}, $${dollars.toFixed(4)}, ${Math.round(verdict.ms / 1000)}s, ${verdict.usage?.calls ?? '?'} calls, ${verdict.russian ? 'in Russian' : 'NOT all in Russian'}`);
+      report.push({
+        goal: goal.key, checks: verdict.checks, shape, said: verdict.said, operations: verdict.operations,
+        outcome: verdict.outcome, usage: verdict.usage, ms: verdict.ms, russian: verdict.russian,
+      });
     }
 
-    console.log(`\n${passed}/${total} checks passed`);
+    console.log(`\n${passed}/${total} checks passed — $${spent.dollars.toFixed(4)}, ${Math.round(spent.ms / 1000)}s, ${spent.russian}/${GOALS.length} in Russian`);
     fs.mkdirSync('eval-results', { recursive: true });
     const file = `eval-results/${LABEL}-${stamp}.json`;
-    fs.writeFileSync(file, JSON.stringify({ label: LABEL, base: BASE, passed, total, report }, null, 2));
+    fs.writeFileSync(file, JSON.stringify({ label: LABEL, base: BASE, passed, total, spent, report }, null, 2));
     console.log(`Saved ${file}`);
   } finally {
     const keys = await redis.keys(`user:eval-*-${stamp}:graph:main`);
