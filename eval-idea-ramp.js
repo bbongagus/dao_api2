@@ -84,6 +84,31 @@ const WISHES = [
     // plan that stops at "decide whether to go on" buys nothing, and passes.
     trialBefore: { trial: /аренд|прокат/i, commit: /купить|покупк|куплен/i },
   },
+  {
+    // The user's own, 2026-09-23: two ideas that looked like one until the
+    // fourth answer. The agent kept one, said "the system allows one plan at
+    // a time", promised the other for the next message, and ended on a
+    // routine ("the rhythm holds") where the point was a new job.
+    key: 'linkedin',
+    answers: [
+      'Мне нужно продвигать свою страницу в LinkedIn и писать посты про продукт, который я пишу, не знаю, как это запланировать. Ещё хочу потихоньку пиарить сам продукт в соцсетях, но тоже не знаю как',
+      'Каждый день по час-два',
+      '1200 подписчиков, постил давно, год назад, сейчас не пишу вообще',
+      'Пользователей у продукта нет. Но это две задачи: продвижение себя для поиска новой работы и продвижение продукта — отдельные штуки',
+      'Личный бренд важнее',
+    ],
+    others: 1,
+    // The last milestone is the result, not the habit that leads to it.
+    outcome: /собеседован|интервью|оффер|приглашен|работ|рекрут|отклик|предложен/i,
+  },
+  {
+    // The user's own: "бюджет есть", no amount, no currency — and the plan
+    // put its test at "10–15 тыс. рублей".
+    key: 'dao-clients',
+    answers: ['Мне надо начать продвигать свой продукт — ДАО', 'Найти первых клиентов', 'С нуля', 'Час-два в день, бюджет есть'],
+    noCurrency: true,
+    outcome: /клиент|пользовател|продаж|оплат/i,
+  },
 ];
 
 const ONLY = (process.env.EVAL_ONLY || '').split(',').map((k) => k.trim()).filter(Boolean);
@@ -140,11 +165,25 @@ const word = (alternatives) => new RegExp(`(?<![а-яё])(${alternatives})(?![а
 const SAYS_TY = word('ты|тебя|тебе|тобой|твой|твоя|твоё|твои|твоего|твоей|[а-яё]+(?:ешь|ёшь|ишь)');
 // Nothing is applied until the person confirms: a plan is proposed, not done.
 const REPORTS_DONE = word('собрал|построил|заложил|составил|сделал|разбил');
+// The person never sees tools; a promise for "the next message" is kept by no one.
+const SPEAKS_OF_TOOLS = /plan_path|один план за раз|систем[аеуы]\s+(?:не\s+)?(?:даёт|дает|разрешает|позволяет)|в следующем сообщении/iu;
+const NAMES_CURRENCY = /руб|₽|\$|доллар|евро|€|(?<![a-z])(?:usd|eur|rub)(?![a-z])/iu;
 
 const isQuestion = (result) => result?.type === 'text' && result.message.includes('?');
 // One short sentence with a few example answers — generous, so it catches a
 // lecture, not a long-ish question.
 const isShort = (result) => (result?.message || '').length <= 320;
+
+/** The milestone nothing else waits on — where the plan ends. */
+function lastMilestone(operations) {
+  const adds = operations.filter((o) => o.op === 'add');
+  const feeds = new Set([
+    ...adds.filter((o) => (o.downstream || []).length).map((o) => o.alias),
+    ...operations.filter((o) => o.op === 'link').map((o) => o.source),
+  ]);
+  const ends = adds.filter((o) => o.nodeType === 'fundamental' && o.nodeSubtype === 'upstream' && !feeds.has(o.alias));
+  return ends.at(-1) || null;
+}
 
 /**
  * Whether the plan tries before it commits: some node titled like `trial`,
@@ -194,6 +233,7 @@ function judge(wish, turns) {
     ['asks before it plans', turns[0].result?.type === 'text' && isQuestion(turns[0].result)],
     ['says «вы», as the panel does', !SAYS_TY.test(agentSaid)],
     ['proposes the plan, does not report it done', planned && !REPORTS_DONE.test(said)],
+    ['never speaks of its tools, never promises a later message', !SPEAKS_OF_TOOLS.test(agentSaid)],
     ['every question is short, and one', asked.every((r) => isQuestion(r) && isShort(r) && (r.message.match(/\?/g) || []).length <= 2)],
     [`plans within ${MAX_TURNS} turns`, planned],
     ['no task counted twice, no empty Mi', planned && shape.doubleCounted.length === 0 && shape.miWithoutTasks === 0],
@@ -202,6 +242,8 @@ function judge(wish, turns) {
   if (wish.stopAt) checks.push(['plans on the turn it is told to', planned && turns.length === wish.stopAt]);
   if (wish.startsFrom) checks.push(['the section says where they start', planned && wish.startsFrom.test(section?.description || '')]);
   if (wish.others) checks.push([`keeps the other ${wish.others} ideas as tasks`, planned && others.length === wish.others]);
+  if (wish.noCurrency) checks.push(['names no currency the person never gave', !NAMES_CURRENCY.test(agentSaid)]);
+  if (wish.outcome) checks.push(['ends on the outcome', planned && wish.outcome.test(lastMilestone(operations)?.title || '')]);
   if (wish.trialBefore) checks.push(['tries it before it commits to it', planned && triesFirst(operations, wish.trialBefore.trial, wish.trialBefore.commit)]);
 
   return { checks, shape, operations, section, others, said };

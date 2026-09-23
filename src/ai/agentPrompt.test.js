@@ -136,3 +136,13 @@ test('the ramp tries a wish before committing to it, and checks it against what 
   assert.match(RAMP_PROMPT, /rent before buying/);
   assert.match(RAMP_PROMPT, /falls short/);
 });
+
+test('the ramp never plans without the outcome, and ends the plan on it', () => {
+  assert.match(RAMP_PROMPT, /Never plan without it/);
+  assert.match(RAMP_PROMPT, /the last stage is the outcome/);
+});
+
+test('the ramp keeps quiet about its tools, and promises nothing for later', () => {
+  assert.match(RAMP_PROMPT, /Never tell them about your tools/);
+  assert.match(RAMP_PROMPT, /never promise to do\s+something in a later message/);
+});
