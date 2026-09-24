@@ -9,9 +9,6 @@
 
 import { z } from 'zod';
 
-/** A conversation longer than this is not a conversation, it is a payload. */
-export const MAX_MESSAGES = 60;
-
 /** Roughly 25k tokens — far more than anyone types, far less than a book. */
 export const MAX_MESSAGE_CHARS = 100_000;
 
@@ -23,7 +20,9 @@ const Message = z.object({
 });
 
 const ChatRequest = z.object({
-  messages: z.array(Message).min(1).max(MAX_MESSAGES),
+  // No cap on how many: a long conversation is billed, and the monthly quota
+  // (spend.js) bounds what it costs.
+  messages: z.array(Message).min(1),
   currentPath: z.array(z.string().max(200)).max(50).default([]),
   // A graph id becomes part of a Redis key, where ':' separates the parts.
   graphId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).default('main'),

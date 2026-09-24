@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseChatRequest, MAX_MESSAGES, MAX_MESSAGE_CHARS } from './chatRequest.js';
+import { parseChatRequest, MAX_MESSAGE_CHARS } from './chatRequest.js';
 
 const ok = (body) => {
   const result = parseChatRequest(body);
@@ -44,10 +44,10 @@ test('content must be a string — an object here is passed straight to the mode
   rejected({ messages: [{ role: 'user', content: '' }] });
 });
 
-test('a conversation longer than the cap is refused, not truncated', () => {
-  const many = Array.from({ length: MAX_MESSAGES + 1 }, () => ({ role: 'user', content: 'x' }));
+test('a long conversation is accepted — the quota bounds it, not a count', () => {
+  const many = Array.from({ length: 500 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x' }));
 
-  rejected({ messages: many });
+  assert.equal(ok({ messages: many }).messages.length, 500);
 });
 
 test('one enormous message is refused — it would be billed as input', () => {

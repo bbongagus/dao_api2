@@ -61,7 +61,9 @@ const app = express();
 app.use(cors(corsOptions()));
 // Ahead of the body parser: a request that proves no user is not worth parsing.
 app.use('/api', createRequireUser(verifyToken));
-app.use(express.json());
+// Express's default is 100 kB, which a long chat outgrows: the client sends
+// the whole conversation on every turn.
+app.use(express.json({ limit: '10mb' }));
 
 // Initialize HTTP server
 const server = http.createServer(app);
