@@ -210,3 +210,74 @@ test('a stored repeatable node reads as a dao in the overview', () => {
     assert.equal(/repeatable|kata/i.test(out), false);
   }
 });
+
+// --- tasks: the whole list to match a dictated sentence against, by meaning.
+// A person says "сходил в зал"; the title says "Тренировка". No word search
+// finds that, so the model reads every candidate instead. ---
+
+test('tasks lists the open tasks, with where each one sits', () => {
+  const out = tools().tasks({ done: false });
+
+  assert.equal(lineOf(out, 'n2'), 'n2 Бегать по утрам — in Здоровье');
+  assert.equal(lineOf(out, 'n5'), 'n5 Получить оффер');
+});
+
+test('tasks leaves out groups, tracks, milestones and what is already done', () => {
+  const out = tools().tasks({ done: false });
+
+  for (const title of ['Здоровье', 'Виза', 'Видение']) {
+    assert.equal(out.split('\n').some((l) => l.endsWith(`] ${title}`) || l.match(new RegExp(`^n\\d+ ${title}$`))), false, title);
+  }
+  assert.equal(out.includes('Купить кроссовки'), false);
+});
+
+test('tasks with done: true lists what is done, most recently done first', () => {
+  const nodes = [
+    n('a', 'Давно', { isDone: true, doneAt: '2026-09-01T10:00:00.000Z' }),
+    n('b', 'Вчера', { isDone: true, doneAt: '2026-09-23T10:00:00.000Z' }),
+    n('c', 'Когда-то', { isDone: true }),
+    n('d', 'Не сделано'),
+  ];
+  const out = createReadTools(nodes, buildAliasTable(nodes)).tasks({ done: true });
+
+  const titles = out.split('\n').filter((l) => /^n\d+ /.test(l)).map((l) => l.replace(/^n\d+ /, ''));
+  assert.deepEqual(titles, ['Вчера', 'Давно', 'Когда-то']);
+});
+
+test('a task with items inside is listed through its items, which name it as their place', () => {
+  const nodes = [
+    n('docs', 'Собрать документы', {
+      children: [n('passport', 'Паспорт'), n('photo', 'Фото', { isDone: true })],
+    }),
+  ];
+  const out = createReadTools(nodes, buildAliasTable(nodes)).tasks({ done: false });
+
+  assert.equal(lineOf(out, 'n1'), undefined, 'the checklist card itself is not a thing to tick');
+  assert.equal(lineOf(out, 'n2'), 'n2 Паспорт — in Собрать документы');
+  assert.equal(out.includes('Фото'), false);
+});
+
+test('tasks caps a very long list and says how to reach the rest', () => {
+  const many = Array.from({ length: 310 }, (_, i) => n(`t${i}`, `Задача ${i}`));
+  const out = createReadTools(many, buildAliasTable(many)).tasks({ done: false });
+
+  assert.equal(out.split('\n').filter((l) => /^n\d+ /.test(l)).length, 300);
+  assert.match(out, /10 more/);
+  assert.match(out, /search/);
+});
+
+test('tasks with nothing to list says so in words', () => {
+  const out = tools().tasks({ done: true });
+  const none = createReadTools([], buildAliasTable([])).tasks({ done: false });
+
+  assert.match(out, /Купить кроссовки/);
+  assert.match(none, /\p{L}/u);
+  assert.equal(/^n\d+ /m.test(none), false);
+});
+
+test('tasks never shows a uuid', () => {
+  const out = tools().tasks({ done: false });
+
+  assert.equal(out.includes('run'), false);
+  assert.equal(out.includes('offer'), false);
+});

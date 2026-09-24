@@ -41,10 +41,10 @@ const noEmit = () => {};
 
 test('staged operations are counted by kind', () => {
   const counts = summariseStaged([
-    { op: 'add' }, { op: 'add' }, { op: 'update' }, { op: 'delete' }, { op: 'link' },
+    { op: 'add' }, { op: 'add' }, { op: 'update' }, { op: 'delete' }, { op: 'link' }, { op: 'done' },
   ]);
 
-  assert.deepEqual(counts, { add: 2, update: 1, delete: 1 });
+  assert.deepEqual(counts, { add: 2, update: 1, delete: 1, done: 1 });
 });
 
 test('a turn that staged nothing comes back as text', () => {
@@ -70,7 +70,7 @@ test('a turn with operations carries them, a summary and counts', () => {
   assert.equal(turn.type, 'changes');
   assert.equal(turn.operations.length, 2);
   assert.equal(turn.summary, 'Добавил одно, убрал другое.');
-  assert.deepEqual(turn.counts, { add: 1, update: 0, delete: 1 });
+  assert.deepEqual(turn.counts, { add: 1, update: 0, delete: 1, done: 0 });
 });
 
 test('a runaway set is refused rather than offered', () => {
@@ -373,6 +373,24 @@ test('the agent can lay out a plan through plan_path', async () => {
   assert.equal(result.type, 'changes');
   assert.ok(result.operations.some((o) => o.nodeSubtype === 'upstream'));
   assert.ok(statuses.includes('planning "Переезд"'));
+});
+
+test('the agent finds a task in the list and proposes ticking it', async () => {
+  const statuses = [];
+  const { turn, results } = runScripted(
+    [['tasks', { done: false }], ['mark_done', { target: 'n2', done: true }]],
+    {
+      messages: [{ role: 'user', content: 'сделал задачу' }],
+      emit: (e) => { if (e.type === 'status') statuses.push(e.text); },
+    },
+  );
+
+  const result = await turn;
+
+  assert.match(results[0], /n2 Задача/);
+  assert.equal(result.type, 'changes');
+  assert.deepEqual(result.operations, [{ op: 'done', target: 'task', isDone: true }]);
+  assert.ok(statuses.includes('marking "Задача" done'));
 });
 
 

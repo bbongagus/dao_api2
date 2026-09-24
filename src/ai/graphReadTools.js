@@ -5,14 +5,18 @@
  * every failure returns a string too — an exception would end the turn, while
  * a sentence lets the model try something else.
  *
- * The three tools are deliberately different sizes: `overview` is cheap and
- * shows shape, `inspect` is the expensive one and is asked for by name,
- * `search` finds a node when the agent does not know where it is.
+ * The tools are deliberately different sizes: `overview` is cheap and shows
+ * shape, `inspect` is the expensive one and is asked for by name, `search`
+ * finds a node when the agent does not know where it is. `tasks` lists every
+ * task in one state, for matching what a person says they did by meaning: a
+ * dictated "сходил в зал" shares no word with the task "Тренировка", so no
+ * word search finds it, and a few hundred titles cost less than a cent.
  */
 
 import { buildLinkIndex } from './links.js';
 
 const SHORT_DESCRIPTION = 120;
+const TASKS_CAP = 300;
 
 /**
  * The four kinds, named the way the agent names them. This is the only
@@ -144,6 +148,35 @@ export function createReadTools(nodes, aliases, edges = []) {
       }
 
       return results;
+    },
+
+    tasks({ done = false } = {}) {
+      const wanted = done === true;
+
+      // What can be ticked: a task with nothing inside. A checklist card's
+      // progress is its items', so the items stand in for it, naming it as
+      // their place.
+      const hits = aliases.all.filter(({ node }) =>
+        kindNameOf(node) === 'dao' && !node.children?.length && Boolean(node.isDone) === wanted
+      );
+      if (hits.length === 0) {
+        return wanted ? 'No task is marked done.' : 'Every task is done; none is still to do.';
+      }
+
+      // A mistaken tick is undone soon after, so the latest come first.
+      if (wanted) hits.sort((a, b) => String(b.node.doneAt || '').localeCompare(String(a.node.doneAt || '')));
+
+      const lines = hits.slice(0, TASKS_CAP).map((entry) => {
+        const path = aliases.pathOf(entry.alias);
+        return `${entry.alias} ${entry.node.title}${path.length ? ` — in ${path.join(' › ')}` : ''}`;
+      });
+      const more = hits.length - lines.length;
+
+      return [
+        `${hits.length} task(s) ${wanted ? 'done' : 'still to do'}. Match what the person said by meaning, not by the words.`,
+        ...lines,
+        ...(more > 0 ? [`… ${more} more not shown. Use search to find one by a word from its title.`] : []),
+      ].join('\n');
     },
   };
 }

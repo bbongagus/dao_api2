@@ -9,7 +9,7 @@
  * refused delete should make it suggest something else, not end the turn.
  */
 
-import { KIND_TO_TYPES, KIND_LIST } from './graphReadTools.js';
+import { KIND_TO_TYPES, KIND_LIST, kindNameOf } from './graphReadTools.js';
 import { buildLinkIndex } from './links.js';
 import { compilePlan } from './planCompiler.js';
 
@@ -20,6 +20,7 @@ export function createWriteTools(nodes, aliases, edges = []) {
   const minted = new Map(); // alias the model invented → its staged add
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
   let planStaged = false; // whether plan() has already succeeded this turn
+  const marked = new Set(); // ids of tasks staged to be ticked or unticked
 
   // Whether two nodes are connected once what is staged so far is applied.
   // A link staged twice, or on top of one that exists, is applied twice.
@@ -201,6 +202,40 @@ export function createWriteTools(nodes, aliases, edges = []) {
           stagedLinks.delete(key);
         }
         return `Staged: disconnect ${source} from ${target}.`;
+      },
+
+      markDone({ target, done }) {
+        if (typeof target !== 'string') return 'A target must be a string.';
+        if (typeof done !== 'boolean') return 'Say done: true to tick the task, or done: false to take the tick back.';
+        const found = resolve(target);
+        if (found?.error) return found.error;
+        if (!found) return `There is no node called ${target}. Use tasks to find the right one.`;
+        if (!found.node) return `${target} is being added in this same turn; it can be ticked once it exists.`;
+
+        const { node } = found;
+        if (kindNameOf(node) !== 'dao') {
+          return `"${node.title}" is a ${kindNameOf(node)}: its progress comes from the tasks it counts, not from a tick of its own. Mark those tasks instead.`;
+        }
+
+        // A checklist card, or a folder, reads its progress from what is
+        // inside; a tick of its own would change nothing on it.
+        if (node.children?.length) {
+          const left = node.children
+            .filter((child) => Boolean(child.isDone) !== done)
+            .map((child) => `${aliases.aliasOf(child.id)} "${child.title}"`);
+          return left.length
+            ? `"${node.title}" has ${node.children.length} item(s) inside, and its progress is theirs. Mark the ones the person means: ${left.join(', ')}.`
+            : `"${node.title}" has ${node.children.length} item(s) inside, and every one is already ${done ? 'done' : 'not done'}. Nothing to change.`;
+        }
+
+        if (marked.has(node.id)) return `"${node.title}" is already staged to be marked in this turn. Nothing to add.`;
+        if (Boolean(node.isDone) === done) {
+          return `"${node.title}" is already ${done ? 'done' : 'not done'}. Nothing to change.`;
+        }
+
+        staged.push({ op: 'done', target: node.id, isDone: done });
+        marked.add(node.id);
+        return `Staged: mark "${node.title}" ${done ? 'done' : 'not done'}.`;
       },
 
       plan(input) {

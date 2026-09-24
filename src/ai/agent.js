@@ -39,6 +39,7 @@ export function summariseStaged(staged) {
     add: staged.filter((o) => o.op === 'add').length,
     update: staged.filter((o) => o.op === 'update').length,
     delete: staged.filter((o) => o.op === 'delete').length,
+    done: staged.filter((o) => o.op === 'done').length,
   };
 }
 
@@ -183,6 +184,14 @@ export async function runGraphAgent({
       run: reportedRead('search', ({ text }) => `searching for "${text}"`, (input) => read.search(input)),
     }),
     betaZodTool({
+      name: 'tasks',
+      description: 'List every task still to do, or every task already done, one line each with where it sits. Use it to find the task the person means when they say they did something.',
+      inputSchema: z.object({
+        done: z.boolean().describe('false: the tasks still to do; true: the ones already done'),
+      }),
+      run: reportedRead('tasks', () => 'looking through the tasks', (input) => read.tasks(input)),
+    }),
+    betaZodTool({
       name: 'add_node',
       description: 'Propose a new node. Nothing is created until the person confirms.',
       inputSchema: z.object({
@@ -248,6 +257,20 @@ export async function runGraphAgent({
         ({ source, target }) => `disconnecting "${titleOf(source)}" from "${titleOf(target)}"`,
         ({ source, target }) => `could not disconnect "${titleOf(source)}" from "${titleOf(target)}"`,
         (input) => write.unlink(input),
+      ),
+    }),
+    betaZodTool({
+      name: 'mark_done',
+      description: 'Propose ticking a task as done, or taking the tick back. Nothing changes until the person confirms.',
+      inputSchema: z.object({
+        target: z.string().describe('The task, e.g. n12'),
+        done: z.boolean().describe('true to mark it done, false to take the tick back'),
+      }),
+      run: reportedWrite(
+        'mark_done',
+        ({ target, done }) => `marking "${titleOf(target)}" ${done ? 'done' : 'not done'}`,
+        ({ target }) => `could not mark "${titleOf(target)}"`,
+        (input) => write.markDone(input),
       ),
     }),
     betaZodTool({

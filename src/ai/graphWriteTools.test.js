@@ -539,3 +539,95 @@ test('a plan cannot go inside a section added in the same turn, and is told what
   assert.match(said, /same turn/);
   assert.match(said, /sectionTitle/);
 });
+
+// --- markDone: the person says they did something, and the task is ticked. ---
+
+const day = [
+  n('home', 'Дом', {
+    nodeType: 'fundamental', nodeSubtype: 'category',
+    children: [
+      n('milk', 'Купить молоко'),
+      n('gym', 'Тренировка', { isDone: true }),
+      n('docs', 'Собрать документы', {
+        children: [n('passport', 'Паспорт'), n('photo', 'Фото', { isDone: true })],
+      }),
+    ],
+  }),
+  n('track', 'Карьера', { nodeType: 'fundamental', nodeSubtype: 'downstream' }),
+  n('stage', 'Оффер получен', { nodeType: 'fundamental', nodeSubtype: 'upstream' }),
+];
+const onDay = () => createWriteTools(day, buildAliasTable(day));
+
+test('markDone stages a tick on a task, by its real id', () => {
+  const { tools, staged } = onDay();
+
+  const said = tools.markDone({ target: 'n2', done: true });
+
+  assert.deepEqual(staged, [{ op: 'done', target: 'milk', isDone: true }]);
+  assert.match(said, /^Staged:.*Купить молоко/);
+});
+
+test('markDone with done: false stages taking a tick back', () => {
+  const { tools, staged } = onDay();
+
+  const said = tools.markDone({ target: 'n3', done: false });
+
+  assert.deepEqual(staged, [{ op: 'done', target: 'gym', isDone: false }]);
+  assert.match(said, /^Staged:.*Тренировка/);
+});
+
+test('markDone refuses a task already in that state', () => {
+  const { tools, staged } = onDay();
+
+  assert.doesNotMatch(tools.markDone({ target: 'n3', done: true }), /^Staged:/);
+  assert.doesNotMatch(tools.markDone({ target: 'n2', done: false }), /^Staged:/);
+  assert.equal(staged.length, 0);
+});
+
+test('markDone refuses the same task twice in one turn', () => {
+  const { tools, staged } = onDay();
+
+  tools.markDone({ target: 'n2', done: true });
+  const again = tools.markDone({ target: 'n2', done: true });
+
+  assert.doesNotMatch(again, /^Staged:/);
+  assert.equal(staged.length, 1);
+});
+
+test('markDone refuses a group, a track and a milestone: their progress comes from tasks', () => {
+  const { tools, staged } = onDay();
+
+  for (const alias of ['n1', 'n7', 'n8']) {
+    const said = tools.markDone({ target: alias, done: true });
+    assert.doesNotMatch(said, /^Staged:/, alias);
+    assert.match(said, /task/, alias);
+  }
+  assert.equal(staged.length, 0);
+});
+
+test('markDone on a task with items inside names the items still to tick', () => {
+  const { tools, staged } = onDay();
+
+  const said = tools.markDone({ target: 'n4', done: true });
+
+  assert.doesNotMatch(said, /^Staged:/);
+  assert.match(said, /n5 "Паспорт"/);
+  assert.equal(said.includes('Фото'), false, 'an item already done is not offered again');
+  assert.equal(staged.length, 0);
+});
+
+test('markDone refuses a node added in the same turn and an alias never handed out', () => {
+  const { tools, staged } = onDay();
+
+  tools.add({ alias: 'bread', parent: '', title: 'Хлеб', description: '', kind: 'dao', x: 0, y: 0 });
+  assert.doesNotMatch(tools.markDone({ target: 'bread', done: true }), /^Staged:/);
+  assert.doesNotMatch(tools.markDone({ target: 'n99', done: true }), /^Staged:/);
+  assert.equal(staged.length, 1, 'only the add');
+});
+
+test('markDone asks for a yes or no rather than guessing one', () => {
+  const { tools, staged } = onDay();
+
+  assert.doesNotMatch(tools.markDone({ target: 'n2', done: 'yes' }), /^Staged:/);
+  assert.equal(staged.length, 0);
+});

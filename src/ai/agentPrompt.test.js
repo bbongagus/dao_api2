@@ -193,3 +193,10 @@ test('the ramp asks which idea first once, and its examples invent no money', ()
   assert.match(RAMP_PROMPT, /name\s+no\s+amount\s+and\s+no\s+currency/);
   assert.match(RAMP_PROMPT, /«заложил»/);
 });
+
+test('the prompt sends "I did it" to the task list, matched by meaning, and to mark_done', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /## When the person says they did something/);
+  assert.match(AGENT_SYSTEM_PROMPT, /`tasks`/);
+  assert.match(AGENT_SYSTEM_PROMPT, /by meaning/);
+  assert.match(AGENT_SYSTEM_PROMPT, /`mark_done`/);
+});
