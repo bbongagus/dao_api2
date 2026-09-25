@@ -22,7 +22,7 @@
 import fs from 'fs';
 import Redis from 'ioredis';
 
-import { describeProposalShape, garbledWords } from './src/ai/graphShape.js';
+import { describeProposalShape, finishesEarly, garbledWords } from './src/ai/graphShape.js';
 import { devTokenFromEnv } from './src/auth/devToken.js';
 
 const BASE = process.argv[2] || 'http://localhost:3011';
@@ -108,6 +108,10 @@ function judge(goal, { statuses, result, ms }) {
       ['no endless habit beside a milestone', proposed && shape.habitsBesideMilestones.length === 0],
       ['stages run side by side where the goal allows', proposed && (goal.parallel ? shape.stageMerges > 0 : true)],
       ['no broken words', proposed && shape.garbled.length === 0 && garbledWords(said).length === 0],
+      // A checklist lists separate things of one kind — documents, purchases.
+      // On most steps it is the step's how-to cut into sub-actions instead.
+      ['checklists on at most a third of the steps', proposed && shape.checklisted.length * 3 <= shape.steps],
+      ['one of several things can be finished before the rest', proposed && (goal.early ? finishesEarly(operations, goal.early) : true)],
     ],
   };
 }
@@ -161,6 +165,7 @@ async function main() {
       }
       const { shape } = verdict;
       console.log(`  ${shape.nodes} nodes, ${shape.arrows} arrows, ${shape.merges} merges, ${shape.stageLinks} stage links; start now: ${shape.startNow.join(', ') || '—'}`);
+      console.log(`  ${shape.checklisted.length} of ${shape.steps} steps hold a checklist`);
       console.log(outline(verdict.operations));
       console.log(`  said: ${verdict.said.replace(/\s+/g, ' ').slice(0, 300)}`);
       const dollars = verdict.usage?.dollars ?? 0;

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { describeProposalShape, garbledWords } from './graphShape.js';
+import { describeProposalShape, finishesEarly, garbledWords } from './graphShape.js';
 
 const add = (alias, nodeType, nodeSubtype, extra = {}) => ({
   op: 'add', alias, parent: 'sec', title: alias, description: '',
@@ -138,6 +138,12 @@ test('the canvas count leaves out checklist items, which live inside their card'
   assert.equal(shape.canvasNodes, 7);
 });
 
+test('steps are the tasks on the canvas, and the ones holding a checklist are counted', () => {
+  const shape = describeProposalShape(sideBySide);
+  assert.equal(shape.steps, 3);
+  assert.deepEqual(shape.checklisted, ['c']);
+});
+
 test('text a person would read as broken is found: CJK characters, words mixing two alphabets', () => {
   assert.deepEqual(garbledWords('База: LLM API и Python/TypeScript工具'), ['TypeScript工具']);
   assert.deepEqual(garbledWords('Вточуить качество, Индоеptic интервью, показа наImageView'), ['Индоеptic', 'наImageView']);
@@ -151,4 +157,38 @@ test('the shape lists broken words in titles and descriptions', () => {
     add('x', 'dao', 'simple', { title: 'Шаг communityчина', description: 'нормальный текст' }),
   ]);
   assert.deepEqual(shape.garbled, ['communityчина']);
+});
+
+// Three articles: topic → text → published, each on its own, or batched by a
+// stage per activity, where a milestone waits for every text.
+const early = { step: 'опубликов.*(перв|1)', notAfter: 'напис.*(трет|3)' };
+const article = (n) => [
+  add(`t${n}`, 'dao', 'simple', { title: `Тема ${n}` }),
+  add(`w${n}`, 'dao', 'simple', { title: `Написать статью ${n}` }),
+  add(`p${n}`, 'dao', 'simple', { title: `Опубликовать статью ${n}` }),
+];
+
+test('three chains let the first article out before the third is written', () => {
+  const ops = [section, ...article(1), ...article(2), ...article(3),
+    ...[1, 2, 3].flatMap((n) => [link(`t${n}`, `w${n}`), link(`w${n}`, `p${n}`)])];
+  assert.equal(finishesEarly(ops, early), true);
+});
+
+test('a stage per activity holds the first article back until every one is written', () => {
+  const ops = [section, ...article(1), ...article(2), ...article(3),
+    add('written', 'fundamental', 'upstream', { title: 'Статьи написаны' }),
+    ...[1, 2, 3].flatMap((n) => [link(`t${n}`, `w${n}`), link(`w${n}`, 'written'), link('written', `p${n}`)])];
+  assert.equal(finishesEarly(ops, early), false);
+});
+
+test('no step matching the one that should finish early fails the check', () => {
+  assert.equal(finishesEarly([section, add('x', 'dao', 'simple', { title: 'Написать три статьи' })], early), false);
+});
+
+test('an item inside a step waits for whatever the step waits for', () => {
+  const ops = [section, ...article(1), ...article(3).slice(0, 2),
+    add('all', 'dao', 'withChildren', { title: 'Опубликовать статьи' }),
+    { ...article(1)[2], alias: 'p1item', parent: 'all' },
+    link('w1', 'all'), link('w3', 'all')];
+  assert.equal(finishesEarly(ops.filter((o) => o.alias !== 'p1'), early), false);
 });

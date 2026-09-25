@@ -80,6 +80,12 @@ export function describeProposalShape(operations = []) {
     nodes: adds.length,
     // What takes room on the canvas; checklist items live inside their card.
     canvasNodes: canvas.length,
+    steps: adds.filter((o) => isTask(o.alias)).length,
+    // Steps with items inside. Most steps should have none: how to do a step
+    // belongs in its description, not in a list of three sub-actions.
+    checklisted: adds
+      .filter((o) => isTask(o.alias) && adds.some((item) => item.parent === o.alias))
+      .map((o) => o.title),
     arrows: arrows.length,
     merges: adds.filter((o) => onCanvas(o) && incoming(o.alias).length > 1).length,
     stageLinks: arrows.filter(([source, target]) => isMi(source) && isTask(target)).length,
@@ -101,6 +107,36 @@ export function describeProposalShape(operations = []) {
           && (m.parent ?? null) === (o.parent ?? null)))
       .map((o) => o.title),
   };
+}
+
+/**
+ * A goal made of several things that each go their own way — three articles,
+ * each chosen, written and published when it is ready: the one named by
+ * `early.step` must not wait, through any chain of arrows or milestones, on a
+ * node named by `early.notAfter`. Stages per activity (all topics, then all
+ * writing) fail it: a milestone waits for everything before it.
+ */
+export function finishesEarly(operations, early) {
+  const adds = operations.filter((o) => o.op === 'add');
+  const arrows = [
+    ...adds.flatMap((o) => (o.downstream || []).map((target) => [o.alias, target])),
+    ...operations.filter((o) => o.op === 'link').map((o) => [o.source, o.target]),
+  ];
+  const first = adds.find((o) => new RegExp(early.step, 'iu').test(o.title));
+  if (!first) return false;
+  const byAlias = new Map(adds.map((o) => [o.alias, o]));
+  const before = new Set();
+  // A checklist item has no arrows of its own: it waits for what its step waits for.
+  const walk = (ref) => {
+    const holder = byAlias.get(byAlias.get(ref)?.parent);
+    if (holder?.nodeType === 'dao') walk(holder.alias);
+    for (const [source, target] of arrows) {
+      if (target === ref && !before.has(source)) { before.add(source); walk(source); }
+    }
+  };
+  walk(first.alias);
+  const title = (ref) => adds.find((o) => o.alias === ref)?.title || '';
+  return ![...before].some((ref) => new RegExp(early.notAfter, 'iu').test(title(ref)));
 }
 
 export default describeProposalShape;

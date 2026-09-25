@@ -178,6 +178,17 @@ test('a checklist holds what the step really has, and its description does not r
   assert.match(AGENT_SYSTEM_PROMPT, /does\s+not\s+list\s+the\s+checklist\s+again/);
 });
 
+// GPT-6 Luna put a checklist on nearly a third of its steps, often every step
+// of a plan, three sub-actions each; and three articles as items of one step
+// could not each be published when ready.
+test('most steps have no checklist: the how-to is a description, things with their own road are chains', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /Most\s+steps\s+have\s+no\s+checklist/);
+  assert.match(AGENT_SYSTEM_PROMPT, /goes\s+in\s+its\s+description,\s+not\s+into\s+items/);
+  assert.match(AGENT_SYSTEM_PROMPT, /are\s+three\s+short\s+chains/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Keep\s+such\s+chains\s+in\s+one\s+stage/);
+  assert.match(AGENT_SYSTEM_PROMPT, /a\s+milestone\s+waits\s+for\s+everything\s+before\s+it/);
+});
+
 test('real names, and finding one out rather than inventing it', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /rather\s+than\s+inventing\s+one/);
 });

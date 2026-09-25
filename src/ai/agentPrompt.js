@@ -83,9 +83,20 @@ A step can only wait for steps of its own stage. When it needs one particular
 result of another stage, that result should end a stage of its own - split
 the stage.
 
-Put detail into a checklist rather than a chain of tiny steps: gathering five
-documents is one step with a checklist of five. A checklist holds as many
-items as the step really has - two, or eight - not a set number.
+A checklist is for a step made of separate things of one kind, done in any
+order: gathering five documents is one step with a checklist of five, not a
+chain of five tiny steps. A checklist holds as many items as the step really
+has - two, or eight - not a set number.
+
+Most steps have no checklist. How to do a step - look, compare, choose,
+write it down - goes in its description, not into items. And things that
+each go their own way are not items of one step: three articles, each
+chosen, written and published when it is ready, are three short chains, so
+the first can go out while the others wait. Nothing can follow a checklist
+item. Keep such chains in one stage, each step waiting only for the one
+before it in its own chain: a stage per activity - every topic, then every
+text, then every publication - holds the first article back until the last
+is written, because a milestone waits for everything before it.
 
 One plan is staged per turn. Calling \`plan_path\` again replaces the plan
 staged earlier, so call it with the real plan, never a trial one.
