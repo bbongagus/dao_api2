@@ -301,6 +301,16 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         return `Staged: mark "${node.title}" ${done ? 'done' : 'not done'}.`;
       },
 
+      // Seeing mid-turn that it staged the wrong thing, the agent could only
+      // ask the person not to confirm — and the person, shown one Apply for
+      // the whole set, confirmed (2026-09-25).
+      startOver() {
+        staged.length = 0;
+        for (const set of [minted, pendingDeletes, marked, moves, stagedLinks, stagedUnlinks]) set.clear();
+        planStaged = false;
+        return 'Nothing is staged now. Stage the change you mean from the start.';
+      },
+
       plan(input) {
         // One plan per turn: a second would mint the same plan: aliases, and
         // two plans at once is not something a person can review. A second

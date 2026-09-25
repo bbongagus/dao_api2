@@ -288,6 +288,18 @@ export async function runGraphAgent({
       ),
     }),
     betaZodTool({
+      name: 'start_over',
+      description: 'Drop everything you staged in this turn, to stage the right change from scratch. Use it instead of asking the person not to confirm.',
+      inputSchema: z.object({}),
+      run: reportedWrite(
+        'start_over',
+        // Its answer is not a "Staged:" one, and it cannot fail.
+        () => 'starting over',
+        () => 'starting over',
+        () => write.startOver(),
+      ),
+    }),
+    betaZodTool({
       name: 'plan_path',
       description: 'Lay out a plan as stages and the steps inside them. The server turns it into milestones, arrows and positions. Nothing is created until the person confirms.',
       inputSchema: z.object({

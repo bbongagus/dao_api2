@@ -739,3 +739,19 @@ test('without a client that can apply a move, move refuses and says not to rebui
   assert.match(said, /delete/);
   assert.equal(staged.length, 0);
 });
+
+test('startOver drops everything staged this turn, so the right set can be staged from scratch', () => {
+  const { tools, staged, a } = onArticles();
+
+  tools.add({ alias: 'box', parent: a('sec'), title: 'Коробка', description: '', kind: 'ryu', x: 0, y: 0 });
+  tools.move({ target: a('t1'), parent: 'box' });
+  tools.remove({ target: a('mi') });
+  tools.plan({ section: a('sec'), sectionTitle: '', sectionDescription: '', stages: [{ id: 's', title: 'Готово', description: '', after: [], steps: [{ id: 'x', title: 'Шаг', description: '', after: [], checklist: [] }] }] });
+  assert.ok(staged.length > 3);
+
+  assert.match(tools.startOver(), /Nothing is staged/);
+  assert.equal(staged.length, 0);
+  assert.match(tools.add({ alias: 'box', parent: a('sec'), title: 'Коробка', description: '', kind: 'ryu', x: 0, y: 0 }), /^Staged:/, 'the alias is free again');
+  assert.match(tools.update({ target: a('mi'), title: 'Темы выбраны!', description: '', kind: '' }), /^Staged:/, 'the node is no longer staged for deletion');
+  assert.match(tools.move({ target: a('t1'), parent: a('sec') }), /^Staged:/);
+});

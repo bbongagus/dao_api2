@@ -197,6 +197,15 @@ test('a node changes place through move_node, never a delete and an add; a resha
   assert.match(AGENT_SYSTEM_PROMPT, /Its\s+milestones\s+stay,\s+and\s+a\s+task\s+the\s+person\s+ticked\s+stays\s+ticked/);
 });
 
+// 2026-09-25: told it had removed milestones and ticks, the agent asked what
+// the section used to hold; it was sent only the text of its own replies.
+test("the app's record of an earlier proposal is read, never written, and says what went where", () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /record\s+in\s+square\s+brackets,\s+added\s+by\s+the\s+app/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Never\s+write\s+one\s+yourself/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Undo\s+in\s+the\s+editor/);
+  assert.match(AGENT_SYSTEM_PROMPT, /call\s+`start_over`\s+and\s+stage\s+the\s+right\s+set;\s+never\s+ask\s+the\s+person\s+not\s+to\s+confirm/);
+});
+
 test('real names, and finding one out rather than inventing it', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /rather\s+than\s+inventing\s+one/);
 });
