@@ -15,12 +15,30 @@ import { compilePlan } from './planCompiler.js';
 
 export { KIND_TO_TYPES, KIND_LIST };
 
-export function createWriteTools(nodes, aliases, edges = []) {
+/** The node holding `id`, or null when it sits at the top level or nowhere. */
+function parentOf(list, id, parent = null) {
+  for (const node of list) {
+    if (node.id === id) return parent;
+    const found = parentOf(node.children || [], id, node);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+const contains = (node, id) => (node.children || []).some((child) => child.id === id || contains(child, id));
+
+/**
+ * @param {{ canMove?: boolean }} [options] - canMove: false when the person's
+ *   app predates the move operation. It would skip a move and still apply a
+ *   delete staged after it, taking the moved nodes with the deleted parent.
+ */
+export function createWriteTools(nodes, aliases, edges = [], { canMove = true } = {}) {
   const staged = [];
   const minted = new Map(); // alias the model invented → its staged add
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
   let planStaged = false; // whether plan() has already succeeded this turn
   const marked = new Set(); // ids of tasks staged to be ticked or unticked
+  const moves = new Map(); // id of a node staged to move → its new parent's id, null for the top level
 
   // Whether two nodes are connected once what is staged so far is applied.
   // A link staged twice, or on top of one that exists, is applied twice.
@@ -131,17 +149,19 @@ export function createWriteTools(nodes, aliases, edges = []) {
         if (!found) return `There is no node called ${target}.`;
 
         // Deleting a parent takes its subtree with it, and nothing the agent
-        // has read tells it what that costs. Check both existing children and
-        // any children staged to be added in this same turn.
-        if (found.node?.children?.length > 0) {
-          return `I will not delete "${found.node.title}" — it has ${found.node.children.length} node(s) inside, and they would go with it. Remove or move those first, or change it instead.`;
+        // has read tells it what that costs. Check existing children that are
+        // not staged to move out, and any children staged to be added or
+        // moved in during this same turn.
+        const staying = (found.node?.children || []).filter((child) => !moves.has(child.id));
+        if (staying.length > 0) {
+          return `I will not delete "${found.node.title}" — it has ${staying.length} node(s) inside, and they would go with it. Move those out first, or change it instead.`;
         }
 
-        const stagedChildren = staged.filter(op => op.op === 'add' && op.parent === found.id);
+        const stagedChildren = staged.filter(op => (op.op === 'add' || op.op === 'move') && op.parent === found.id);
         if (stagedChildren.length > 0) {
           const nodeName = found.node ? `"${found.node.title}"` : target;
-          const childNames = stagedChildren.map(op => `${op.alias}`).join(', ');
-          return `I will not delete ${nodeName} — it has ${stagedChildren.length} node(s) staged inside in this turn (${childNames}), and they would go with it. Remove or move those first, or change it instead.`;
+          const childNames = stagedChildren.map(op => op.alias || aliases.aliasOf(op.target)).join(', ');
+          return `I will not delete ${nodeName} — ${stagedChildren.length} node(s) are staged to go inside it in this turn (${childNames}), and they would go with it. Put those somewhere else, or change it instead.`;
         }
 
         // Refuse to delete a node that was added in this same turn.
@@ -202,6 +222,49 @@ export function createWriteTools(nodes, aliases, edges = []) {
           stagedLinks.delete(key);
         }
         return `Staged: disconnect ${source} from ${target}.`;
+      },
+
+      // The one way to change where a node sits. Deleting it and adding it
+      // again elsewhere loses its tick, its arrows and its id.
+      move({ target, parent }) {
+        if (!canMove) {
+          return 'This person\'s app is older than moving and cannot apply a move yet. Do not delete the node and add it again elsewhere instead: its tick and arrows would be lost. Say that a reload of the page lets you move it.';
+        }
+        if (typeof target !== 'string') return 'A target must be a string.';
+        const found = resolve(target);
+        if (found?.error) return found.error;
+        if (!found) return `There is no node called ${target}.`;
+        if (!found.node) return `${target} is being added in this same turn. Give it the right parent in add_node instead.`;
+        if (moves.has(found.id)) return `"${found.node.title}" is already staged to move in this turn. Nothing to add.`;
+
+        let parentId = null;
+        let where = 'the top level';
+        if (parent) {
+          if (typeof parent !== 'string') return 'A parent must be a string.';
+          const into = resolve(parent);
+          if (into?.error) return into.error;
+          if (!into) return `There is no node called ${parent} to put it inside.`;
+          const kind = into.node || minted.get(into.id);
+          if (kind.nodeType !== 'dao' && kindNameOf(kind) !== 'ryu') {
+            return `A ${kindNameOf(kind)} holds nothing inside it. Nodes go inside a ryu or a task.`;
+          }
+          if (into.id === found.id || contains(found.node, into.id)) {
+            return `"${found.node.title}" cannot go inside itself.`;
+          }
+          parentId = into.id;
+          where = into.node ? `"${into.node.title}"` : parent;
+        }
+
+        const from = parentOf(nodes, found.id) ?? null;
+        if ((from?.id ?? null) === parentId) return `"${found.node.title}" is already there. Nothing to change.`;
+
+        staged.push({ op: 'move', target: found.id, parent: parentId });
+        moves.set(found.id, parentId);
+
+        const emptied = from?.nodeType === 'dao' && from.children.every((child) => moves.has(child.id))
+          ? ` "${from.title}" has nothing left inside and becomes a plain task.`
+          : '';
+        return `Staged: move "${found.node.title}" into ${where}. It keeps its tick, its arrows and what is inside it.${emptied}`;
       },
 
       markDone({ target, done }) {

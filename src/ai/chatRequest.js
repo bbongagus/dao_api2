@@ -30,6 +30,9 @@ const ChatRequest = z.object({
   // An enum, not a string: it selects server-side instructions, and nothing
   // the client sends may choose which.
   mode: z.enum(['ramp']).optional(),
+  // Operations the app can apply beyond the first ones ('move'). Names, not
+  // an enum: an app newer than this server must not be refused for knowing more.
+  applies: z.array(z.string().max(40)).max(20).default([]),
 });
 
 /**

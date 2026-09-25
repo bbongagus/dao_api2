@@ -82,3 +82,11 @@ test('a mode the server does not know is refused', () => {
   rejected({ messages: turn, mode: 'RAMP' });
   rejected({ messages: turn, mode: 1 });
 });
+
+test('what the app can apply is a list of names, none by default, and a name it does not know yet is kept', () => {
+  const user = [{ role: 'user', content: 'вынеси пункты' }];
+  assert.deepEqual(ok({ messages: user }).applies, []);
+  assert.deepEqual(ok({ messages: user, applies: ['move', 'later'] }).applies, ['move', 'later']);
+  rejected({ messages: user, applies: 'move' });
+  rejected({ messages: user, applies: [{ op: 'move' }] });
+});

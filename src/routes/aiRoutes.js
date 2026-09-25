@@ -84,7 +84,7 @@ export function setupAIRoutes({
     if (!parsed.ok) {
       return res.status(400).json({ success: false, error: parsed.error });
     }
-    const { messages, currentPath, graphId, mode } = parsed.value;
+    const { messages, currentPath, graphId, mode, applies } = parsed.value;
 
     const provider = getProvider();
     if (!provider.configured) {
@@ -161,6 +161,9 @@ export function setupAIRoutes({
         currentPath,
         messages,
         mode,
+        // A tab from before moves would skip one and still apply a delete
+        // staged after it, taking the moved nodes with the deleted parent.
+        canMove: applies.includes('move'),
         emit: (event) => { if (!aborted) emit(event); },
         onToolCall: (call) => toolCalls.push(call),
       });

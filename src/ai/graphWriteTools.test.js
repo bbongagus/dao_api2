@@ -631,3 +631,111 @@ test('markDone asks for a yes or no rather than guessing one', () => {
   assert.doesNotMatch(tools.markDone({ target: 'n2', done: 'yes' }), /^Staged:/);
   assert.equal(staged.length, 0);
 });
+
+// Статьи: «Выбрать темы» holds two items, one ticked; beside it a task, a Mi,
+// and an empty group.
+const articles = [
+  n('sec', 'Статьи', {
+    nodeType: 'fundamental', nodeSubtype: 'category',
+    children: [
+      n('topics', 'Выбрать темы', {
+        nodeSubtype: 'withChildren',
+        children: [n('t1', 'Тема 1', { isDone: true }), n('t2', 'Тема 2')],
+      }),
+      n('write', 'Написать статью'),
+      n('mi', 'Темы выбраны', { nodeType: 'fundamental', nodeSubtype: 'upstream' }),
+      n('later', 'Потом', { nodeType: 'fundamental', nodeSubtype: 'category' }),
+    ],
+  }),
+];
+
+const onArticles = (options) => {
+  const table = buildAliasTable(articles);
+  return { ...createWriteTools(articles, table, [], options), a: (id) => table.aliasOf(id) };
+};
+
+test('move stages the node and its new parent as real ids, and says what it keeps', () => {
+  const { tools, staged, a } = onArticles();
+
+  const said = tools.move({ target: a('t1'), parent: a('sec') });
+
+  assert.deepEqual(staged, [{ op: 'move', target: 't1', parent: 'sec' }]);
+  assert.match(said, /^Staged:/);
+  assert.match(said, /tick/);
+});
+
+test('move with an empty parent puts the node at the top level', () => {
+  const { tools, staged, a } = onArticles();
+
+  tools.move({ target: a('write'), parent: '' });
+
+  assert.deepEqual(staged, [{ op: 'move', target: 'write', parent: null }]);
+});
+
+test('move into a task or a new group is allowed; into a kai or mi it is not', () => {
+  const { tools, staged, a } = onArticles();
+
+  assert.match(tools.move({ target: a('write'), parent: a('topics') }), /^Staged:/);
+  tools.add({ alias: 'box', parent: a('sec'), title: 'Коробка', description: '', kind: 'ryu', x: 0, y: 0 });
+  assert.match(tools.move({ target: a('t2'), parent: 'box' }), /^Staged:/);
+  assert.doesNotMatch(tools.move({ target: a('t1'), parent: a('mi') }), /^Staged:/);
+  assert.equal(staged.filter((o) => o.op === 'move').length, 2);
+});
+
+test('move refuses a node going inside itself, or to where it already is', () => {
+  const { tools, staged, a } = onArticles();
+
+  assert.doesNotMatch(tools.move({ target: a('sec'), parent: a('topics') }), /^Staged:/);
+  assert.doesNotMatch(tools.move({ target: a('topics'), parent: a('topics') }), /^Staged:/);
+  assert.match(tools.move({ target: a('t1'), parent: a('topics') }), /already/);
+  assert.equal(staged.length, 0);
+});
+
+test('move refuses a node added in the same turn, and one already staged to move', () => {
+  const { tools, staged, a } = onArticles();
+
+  tools.add({ alias: 'fresh', parent: a('sec'), title: 'Новое', description: '', kind: 'dao', x: 0, y: 0 });
+  assert.match(tools.move({ target: 'fresh', parent: '' }), /add_node/);
+  tools.move({ target: a('t1'), parent: a('sec') });
+  assert.doesNotMatch(tools.move({ target: a('t1'), parent: '' }), /^Staged:/);
+  assert.equal(staged.filter((o) => o.op === 'move').length, 1);
+});
+
+test('a task whose last item moves out is said to become a plain task', () => {
+  const { tools, a } = onArticles();
+
+  assert.doesNotMatch(tools.move({ target: a('t1'), parent: a('sec') }), /plain task/);
+  assert.match(tools.move({ target: a('t2'), parent: a('sec') }), /plain task/);
+});
+
+test('a node can be deleted once everything inside it is staged to move out', () => {
+  const { tools, staged, a } = onArticles();
+
+  tools.move({ target: a('t1'), parent: a('sec') });
+  assert.doesNotMatch(tools.remove({ target: a('topics') }), /^Staged:/, 'one item is still inside');
+  tools.move({ target: a('t2'), parent: a('sec') });
+  assert.match(tools.remove({ target: a('topics') }), /^Staged:/);
+  assert.equal(staged.at(-1).op, 'delete');
+});
+
+test('a node that nodes are moving into cannot be deleted, and a node staged for deletion takes none', () => {
+  const { tools, staged, a } = onArticles();
+
+  tools.move({ target: a('write'), parent: a('later') });
+  assert.doesNotMatch(tools.remove({ target: a('later') }), /^Staged:/);
+
+  tools.remove({ target: a('mi') });
+  assert.doesNotMatch(tools.move({ target: a('t1'), parent: a('mi') }), /^Staged:/);
+  assert.equal(staged.filter((o) => o.op === 'delete').length, 1);
+});
+
+test('without a client that can apply a move, move refuses and says not to rebuild the node', () => {
+  const { tools, staged, a } = onArticles({ canMove: false });
+
+  const said = tools.move({ target: a('t1'), parent: a('sec') });
+
+  assert.doesNotMatch(said, /^Staged:/);
+  assert.match(said, /reload/);
+  assert.match(said, /delete/);
+  assert.equal(staged.length, 0);
+});

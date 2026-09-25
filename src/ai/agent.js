@@ -87,7 +87,7 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 }
 
 export async function runGraphAgent({
-  client, model, nodes, edges = [], currentPath, messages, mode, emit, onToolCall = () => {}, signal,
+  client, model, nodes, edges = [], currentPath, messages, mode, canMove = false, emit, onToolCall = () => {}, signal,
   // What the host needs beside the Messages parameters — OpenRouter's routing.
   extraBody = {},
   // A thinking budget for the loop, or null to leave the model's default.
@@ -101,7 +101,7 @@ export async function runGraphAgent({
 
   const aliases = buildAliasTable(nodes);
   const read = createReadTools(nodes, aliases, edges);
-  const { tools: write, staged } = createWriteTools(nodes, aliases, edges);
+  const { tools: write, staged } = createWriteTools(nodes, aliases, edges, { canMove });
 
   emit({ type: 'status', text: aliases.size === 0 ? 'the graph is empty' : `${aliases.size} nodes in the graph` });
 
@@ -257,6 +257,20 @@ export async function runGraphAgent({
         ({ source, target }) => `disconnecting "${titleOf(source)}" from "${titleOf(target)}"`,
         ({ source, target }) => `could not disconnect "${titleOf(source)}" from "${titleOf(target)}"`,
         (input) => write.unlink(input),
+      ),
+    }),
+    betaZodTool({
+      name: 'move_node',
+      description: 'Propose putting a node, with everything inside it, under another parent - or at the top level. It keeps its tick and its arrows. Nothing changes until the person confirms.',
+      inputSchema: z.object({
+        target: z.string().describe('The node to move, e.g. n12'),
+        parent: z.string().describe('The ryu or task to put it inside, or "" for the top level'),
+      }),
+      run: reportedWrite(
+        'move_node',
+        ({ target }) => `moving "${titleOf(target)}"`,
+        ({ target }) => `could not move "${titleOf(target)}"`,
+        (input) => write.move(input),
       ),
     }),
     betaZodTool({

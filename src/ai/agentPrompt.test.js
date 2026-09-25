@@ -189,6 +189,14 @@ test('most steps have no checklist: the how-to is a description, things with the
   assert.match(AGENT_SYSTEM_PROMPT, /a\s+milestone\s+waits\s+for\s+everything\s+before\s+it/);
 });
 
+// 2026-09-25: asked to split a checklist into separate tasks, the agent
+// deleted the items and both milestones and added new tasks: three ticks lost.
+test('a node changes place through move_node, never a delete and an add; a reshape keeps milestones and ticks', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /use\s+`move_node`/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Never\s+delete\s+a\s+node\s+and\s+add\s+it\s+again/);
+  assert.match(AGENT_SYSTEM_PROMPT, /Its\s+milestones\s+stay,\s+and\s+a\s+task\s+the\s+person\s+ticked\s+stays\s+ticked/);
+});
+
 test('real names, and finding one out rather than inventing it', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /rather\s+than\s+inventing\s+one/);
 });
