@@ -73,22 +73,30 @@ test('a turn with operations carries them, a summary and counts', () => {
   assert.deepEqual(turn.counts, { add: 1, update: 0, delete: 1, done: 0 });
 });
 
-test('a runaway set is refused rather than offered', () => {
-  const staged = Array.from({ length: 31 }, () => ({ op: 'add' }));
+test('84 ordinary edits are offered for review instead of discarded at a hidden cap', () => {
+  const staged = Array.from({ length: 84 }, (_, i) => ({ op: 'add', alias: `task${i}` }));
 
   const turn = shapeTurn({ staged, summary: 'всё сразу' });
 
-  assert.equal(turn.type, 'text');
-  assert.match(turn.message, /31/);
+  assert.equal(turn.type, 'changes');
+  assert.deepEqual(turn.operations, staged);
 });
 
-test('exactly MAX_OPERATIONS (30) is still offered, not refused', () => {
+test('an ordinary 30-operation proposal is still offered', () => {
   const staged = Array.from({ length: 30 }, () => ({ op: 'add' }));
 
   const turn = shapeTurn({ staged, summary: 'ровно тридцать' });
 
   assert.equal(turn.type, 'changes');
   assert.equal(turn.operations.length, 30);
+});
+
+test('a large unfinished draft stays reviewable and is explicitly labelled partial', () => {
+  const staged = Array.from({ length: 84 }, () => ({ op: 'add' }));
+  const turn = shapeTurn({ staged, summary: 'Draft', stoppedEarly: true });
+  assert.equal(turn.type, 'changes');
+  assert.equal(turn.operations.length, 84);
+  assert.match(turn.summary, /stopped part-way through/);
 });
 
 test('a turn that ran out of iterations still offers what it staged', () => {
@@ -718,4 +726,67 @@ test('a second start_over stops the loop before more tools or model calls and re
   assert.equal(callsExecuted, 1);
   assert.equal(result.usage.calls, 2);
   assert.equal(result.operations, undefined);
+});
+
+// Synthetic counterpart of the reported weekly regrouping, using the real
+// tools. This verifies their contract, not a live model's planning quality.
+test('weekly regrouping can read its draft and retain completed work beyond 30 edits', async () => {
+  const { buildAliasTable } = await import('./aliases.js');
+  const { projectDraft } = await import('./graphDraft.js');
+  const task = (id, done = false) => ({ id, title: id, nodeType: 'dao', nodeSubtype: 'simple',
+    children: [], isDone: done, ...(done ? { doneAt: '2026-09-24T12:00:00Z' } : {}) });
+  const profile = [task('headline', true), task('description', true),
+    { ...task('profile'), nodeType: 'fundamental', nodeSubtype: 'upstream' }];
+  const articles = Array.from({ length: 3 }, (_, i) => [task(`topic${i+1}`, true),
+    task(`write${i+1}`, i < 2), task(`publish${i+1}`, i < 2)]).flat();
+  const nodes = [{ ...task('area'), nodeType: 'fundamental', nodeSubtype: 'category',
+    children: [...profile, ...articles, task('comment', true)] }, task('unrelated')];
+  const edges = [
+    { source: 'headline', target: 'profile' }, { source: 'description', target: 'profile' },
+    ...Array.from({ length: 3 }, (_, i) => [
+      { source: `topic${i+1}`, target: `write${i+1}` },
+      { source: `write${i+1}`, target: `publish${i+1}` },
+      { source: 'profile', target: `topic${i+1}` },
+    ]).flat(),
+  ];
+  const original = structuredClone(nodes);
+  const aliases = buildAliasTable(nodes);
+  const ref = id => aliases.aliasOf(id);
+  const calls = [['inspect', { alias: ref('area'), depth: 2 }]];
+  const add = (alias, parent, title, kind = 'dao') => calls.push(['add_node', { alias, parent, title, kind, description: '', x: 0, y: 0 }]);
+  for (let week = 1; week <= 4; week++) {
+    add(`week${week}`, ref('area'), `Week ${week}`, 'ryu');
+    add(`comments${week}`, `week${week}`, 'Seven comments');
+    for (let item = week === 1 ? 2 : 1; item <= 7; item++) add(`comment${week}_${item}`, `comments${week}`, `Comment ${item}`);
+  }
+  for (const node of profile) calls.push(['move_node', { target: ref(node.id), parent: 'week1' }]);
+  for (const node of articles) calls.push(['move_node', { target: ref(node.id), parent: 'week2' }]);
+  calls.push(['move_node', { target: ref('comment'), parent: 'comments1' }]);
+  for (let i = 4; i <= 9; i++) {
+    const week = i <= 6 ? 'week3' : 'week4';
+    for (const phase of ['topic', 'write', 'publish']) add(`${phase}${i}`, week, `${phase} ${i}`);
+    calls.push(['link_nodes', { source: `topic${i}`, target: `write${i}` }],
+      ['link_nodes', { source: `write${i}`, target: `publish${i}` }]);
+  }
+  for (let i = 1; i <= 3; i++) calls.push(['unlink_nodes', { source: ref('profile'), target: ref(`topic${i}`) }]);
+  calls.push(['inspect_draft', { alias: ref('area'), depth: 4 }]);
+  const { turn, results } = runScripted(calls, { nodes, edges, canMove: true });
+  const result = await turn;
+  assert.equal(result.type, 'changes');
+  assert.ok(result.operations.length > 30);
+  assert.ok(results.slice(1, -1).every(r => r.startsWith('Staged:')), results.join('\n'));
+  assert.match(results.at(-1), /Draft only/);
+  assert.match(results.at(-1), /Week 4/);
+  const draft = projectDraft(nodes, edges, result.operations, aliases);
+  for (const node of [...profile, ...articles, nodes[0].children.at(-1)]) {
+    const moved = draft.aliases.nodeAt(ref(node.id));
+    assert.equal(moved.id, node.id);
+    assert.equal(moved.isDone, node.isDone);
+    assert.equal(moved.doneAt, node.doneAt);
+  }
+  for (let week = 1; week <= 4; week++) assert.equal(draft.aliases.nodeAt(`comments${week}`).children.length, 7);
+  for (let i = 1; i <= 9; i++) assert.ok(draft.edges.some(e => e.source === `write${i}` && e.target === `publish${i}`));
+  assert.deepEqual(draft.aliases.nodeAt(ref('unrelated')), { ...nodes[1], linkedNodeIds: {} });
+  assert.deepEqual(nodes, original);
+  assert.ok(!result.operations.some(o => ['delete', 'done'].includes(o.op)));
 });

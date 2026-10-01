@@ -60,6 +60,19 @@ test('inspect marks what is already done', () => {
   assert.match(out, /Купить кроссовки.*done/);
 });
 
+test('inspect can actually read the siblings omitted from its first page', () => {
+  const nodes = [n('area', 'Area', { children: Array.from({ length: 85 }, (_, i) => n(`id${i}`, `Task ${i}`)) })];
+  const read = createReadTools(nodes, buildAliasTable(nodes));
+  assert.match(read.inspect({ alias: 'n1' }), /offset 40/);
+  const second = read.inspect({ alias: 'n1', offset: 40 });
+  assert.match(second, /Task 40/);
+  assert.doesNotMatch(second, /Task 39/);
+  assert.match(second, /offset 80/);
+  const last = read.inspect({ alias: 'n1', offset: 80 });
+  assert.match(last, /Task 84/);
+  assert.doesNotMatch(last, /more below/);
+});
+
 test('inspect shows links by alias', () => {
   const out = tools().inspect({ alias: 'n4', depth: 1 });
 

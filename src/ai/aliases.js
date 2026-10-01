@@ -18,7 +18,7 @@
  * but denotes a real node.
  */
 
-export function buildAliasTable(nodes) {
+export function buildAliasTable(nodes, aliasFor = null) {
   const all = [];
   const byAlias = new Map();
   const byId = new Map();
@@ -26,7 +26,8 @@ export function buildAliasTable(nodes) {
 
   const walk = (list, parentAlias, ancestors) => {
     for (const node of list || []) {
-      const alias = `n${all.length + 1}`;
+      const alias = aliasFor ? aliasFor(node.id) : `n${all.length + 1}`;
+      if (!alias || byAlias.has(alias)) throw new Error('Node aliases must be present and unique.');
       const entry = { alias, node, parentAlias, depth: ancestors.length };
 
       all.push(entry);

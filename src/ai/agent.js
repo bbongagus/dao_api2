@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { buildAliasTable } from './aliases.js';
 import { createReadTools } from './graphReadTools.js';
 import { createWriteTools, KIND_LIST } from './graphWriteTools.js';
+import { projectDraft } from './graphDraft.js';
 import { AGENT_SYSTEM_PROMPT, RAMP_PROMPT, describeWhereUserIs } from './agentPrompt.js';
 import { buildSourceBrief } from './sourceBrief.js';
 import { createUsageMeter } from './usageMeter.js';
@@ -31,9 +32,6 @@ export const RAMP_QUESTIONS = 4;
 // planned — so the server counts them.
 const RAMP_SPENT = `The ramp's ${RAMP_QUESTIONS} questions have been asked in this chat. Unless a plan was already proposed in it, ask nothing more: plan now with \`plan_path\` from what you know, and say in a clause what you assumed.`;
 
-// A single exchange should not be able to rewrite the whole graph.
-export const MAX_OPERATIONS = 30;
-
 export function summariseStaged(staged) {
   return {
     add: staged.filter((o) => o.op === 'add').length,
@@ -48,17 +46,9 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
   const said = (summary || '').trim();
   const ranOutOfRoom = 'I ran out of room while looking around before I finished — ask me to continue, or narrow the request.';
 
-  // A plan from plan_path is bounded by its own node limit. The cap is for
-  // ordinary edits; applied to a plan it would refuse the arrows it needs.
-  const ordinary = staged.filter((o) => !o.plan).length;
-  if (ordinary > MAX_OPERATIONS) {
-    return {
-      type: 'text',
-      message: stoppedEarly
-        ? `That came to ${ordinary} changes at once, which is more than I will propose in one step, and I still ran out of room before I was done. Ask for one part of it at a time.`
-        : `That came to ${ordinary} changes at once, which is more than I will propose in one step. Ask for one part of it at a time.`,
-    };
-  }
+  // Moves, checklist items and arrows are implementation details, not a
+  // measure of the person's request. Do not discard a draft at 30 edits.
+  // Tool validation, the execution budget and explicit Apply still apply.
 
   if (staged.length === 0) {
     if (stoppedEarly) {
@@ -170,12 +160,28 @@ export async function runGraphAgent({
     }),
     betaZodTool({
       name: 'inspect',
-      description: 'Open one node and everything inside it, with descriptions and links.',
+      description: 'Read a saved node and its contents, descriptions and links. This is the saved graph, before this turn’s proposed changes. Use inspect_draft to check your proposal.',
       inputSchema: z.object({
         alias: z.string().describe('The node to open, e.g. n3'),
         depth: z.number().describe('How many levels down to show, 1 to 6'),
+        offset: z.number().int().min(0).optional().describe('Skip this many direct children to read the next page; default 0'),
       }),
       run: reportedRead('inspect', ({ alias }) => `reading "${titleOf(alias)}"`, (input) => read.inspect(input)),
+    }),
+    betaZodTool({
+      name: 'inspect_draft',
+      description: 'Read the graph as it would look after all staged changes, without applying them. Existing aliases stay the same; new nodes use your add_node aliases. Check groups, completed tasks and links before finishing. An empty alias shows the top level.',
+      inputSchema: z.object({
+        alias: z.string(),
+        depth: z.number().describe('How many levels down to show, 1 to 6'),
+        offset: z.number().int().min(0).optional().describe('Skip direct children for the next page; default 0'),
+      }),
+      run: reportedRead('inspect_draft', () => 'checking the proposed structure', (input) => {
+        const draft = projectDraft(nodes, edges, staged, aliases);
+        const view = createReadTools(draft.nodes, draft.aliases, draft.edges);
+        return `Draft only — ${staged.length} staged operations; nothing applied.\n`
+          + (input.alias ? view.inspect(input) : view.overview());
+      }),
     }),
     betaZodTool({
       name: 'search',

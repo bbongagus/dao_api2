@@ -90,13 +90,14 @@ export function createReadTools(nodes, aliases, edges = []) {
       ].join('\n');
     },
 
-    inspect({ alias, depth = 2 }) {
+    inspect({ alias, depth = 2, offset = 0 }) {
       const entry = aliases.entryAt(alias);
       if (!entry) return `There is no node called ${alias}. Use overview or search to find the right alias.`;
 
       const limit = Math.max(1, Math.min(Number(depth) || 2, 6));
       const out = [];
       const CHILDREN_CAP = 40;
+      const start = Math.max(0, Math.floor(Number(offset) || 0));
 
       const walk = (current, indent) => {
         out.push(line(current, { description: 'full', indent }));
@@ -106,15 +107,16 @@ export function createReadTools(nodes, aliases, edges = []) {
           return;
         }
         const children = current.node.children || [];
-        const shown = Math.min(children.length, CHILDREN_CAP);
-        for (let i = 0; i < shown; i++) {
+        const skip = indent === 0 ? start : 0;
+        const shown = Math.min(children.length, skip + CHILDREN_CAP);
+        for (let i = skip; i < shown; i++) {
           const child = children[i];
           const childEntry = aliases.entryAt(aliases.aliasOf(child.id));
           if (childEntry) walk(childEntry, indent + 1);
         }
-        if (children.length > CHILDREN_CAP) {
-          const omitted = children.length - CHILDREN_CAP;
-          out.push(`${'  '.repeat(indent + 1)}… ${omitted} more below, inspect ${current.alias} with a greater depth to see them`);
+        if (children.length > shown) {
+          const omitted = children.length - shown;
+          out.push(`${'  '.repeat(indent + 1)}… ${omitted} more below, inspect ${current.alias} with offset ${shown} to see the next children`);
         }
       };
       walk(entry, 0);
