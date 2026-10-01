@@ -310,11 +310,11 @@ export async function runGraphAgent({
     }),
     betaZodTool({
       name: 'plan_path',
-      description: 'Build a connected path from a Track through tasks and Milestones on one level, with real checklists. Reuse existing task/milestone aliases to preserve completed work. A Group can be converted into a flat Track path. Nothing changes until confirmed.',
+      description: 'Build a connected path from a Track through tasks and Milestones on one level, with real checklists. Reuse existing task/milestone aliases to preserve completed work. Keep one enclosing Group, with the Track, tasks and Milestones together inside it. Remove only nested stage Groups. Nothing changes until confirmed.',
       inputSchema: z.object({
         layout: z.enum(['track', 'group']).describe('Use track for a connected goal/path. group is only for explicitly requested containment.'),
         sequence: z.boolean().describe('true when stages must follow one another in the given order; false to use stage after dependencies'),
-        section: z.string().describe('Existing Track or Group alias to restructure; empty creates a new Track. Staged aliases also work.'),
+        section: z.string().describe('Existing Track or Group alias to restructure; empty creates a new plan Group with a Track inside. Existing enclosing Groups are preserved. Staged aliases also work.'),
         sectionTitle: z.string().describe('Title of the new section when section is ""'),
         sectionDescription: z.string(),
         stages: z.array(z.object({

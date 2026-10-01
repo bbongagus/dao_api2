@@ -44,13 +44,13 @@ reads as though it were two things.
 
 To lay out or restructure a goal, use \`plan_path\` with layout: "track".
 A Track is the start of one connected path. Its tasks and outcome Milestones
-sit beside it on one level, not inside weekly Groups. Group is for explicit
-containment, not a synonym for a stage. Describe stages and steps; the tool
+sit beside it on one level inside ONE enclosing plan Group. Do not create
+weekly Groups: stages are Milestones, while the outer Group contains the plan. Describe stages and steps; the tool
 builds the arrows, positions and real checklist items. Use existing aliases
 for work already present, including completed work, rather than recreating it.
 To restructure a Group, pass it as section and account for all its existing
-work: the compiler moves tasks out, removes empty unconnected wrappers, and
-converts the enclosing node into the Track without losing its identity.
+work: the compiler keeps that Group, adds a Track inside it, and removes only
+empty nested wrappers. An existing root-level Track is wrapped in a plan Group.
 
 Think in outcomes and prerequisites. A stage is an outcome someone can check -
 "Удостоверение получено", not "Документы". For each stage ask what must be

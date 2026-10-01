@@ -13,9 +13,14 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
   if (plan.section && !anchor) return fail('The Track or Group alias does not exist. Inspect the area first.');
   if (anchor && !group(anchor) && !track(anchor)) return fail('Choose a Track or Group to restructure.');
   const parentAlias = anchor ? aliases.entryAt(plan.section).parentAlias : null;
-  const parent = parentAlias ? aliases.nodeAt(parentAlias).id : null;
+  const oldParent = parentAlias ? aliases.nodeAt(parentAlias) : null;
+  const containedTracks = group(anchor) ? (anchor.children || []).filter(track) : [];
+  if (containedTracks.length > 1) return fail('This Group contains several Tracks. Choose the Track to restructure.');
+  const existingTrack = track(anchor) ? anchor : containedTracks[0] || null;
+  const container = group(anchor) ? anchor : group(oldParent) ? oldParent : null;
+  const parent = container?.id || 'plan-container';
   const selected = new Map();
-  const map = new Map([['plan:section', anchor?.id || 'plan:section']]);
+  const map = new Map([['plan:section', existingTrack?.id || 'plan:section']]);
   let problem;
   const bind = (ref, generated, kind) => {
     if (!ref) return;
@@ -66,6 +71,7 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
     }
     for (const id of selected.keys()) if (!scope.has(id)) return fail('An existing reference is outside this plan. Do not pull unrelated work into it.');
   }
+  if (existingTrack) scope.delete(existingTrack.id);
   const wrappers = [];
   for (const [id, n] of scope) {
     if (selected.has(id)) continue;
@@ -78,7 +84,7 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
   for (const n of selected.values()) for (const child of n.children || []) {
     if (!selected.has(child.id)) return fail(`Include existing checklist item ${aliases.aliasOf(child.id)} before restructuring its parent.`);
   }
-  const allOwned = new Set([...selected.keys(), ...wrappers.map(n => n.id), ...(anchor ? [anchor.id] : [])]);
+  const allOwned = new Set([...selected.keys(), ...wrappers.map(n => n.id), ...(anchor ? [anchor.id] : []), ...(existingTrack ? [existingTrack.id] : [])]);
   for (const id of allOwned) for (const other of [...links.downstreamOf(id), ...links.upstreamOf(id)]) {
     if (!allOwned.has(other)) return fail('This plan connects to work outside the selected area. Inspect those connections before restructuring it.');
   }
@@ -93,6 +99,10 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
 
   const ref = id => map.get(id) || id;
   const operations = [];
+  if (!container) operations.push({ op: 'add', alias: parent, parent: oldParent?.id || null,
+    title: plan.sectionTitle || anchor?.title || 'Plan', description: '',
+    nodeType: 'fundamental', nodeSubtype: 'category',
+    x: anchor?.position?.x || 0, y: anchor?.position?.y || 0, downstream: [] });
   let anchorUpdate;
   const desiredLinks = compiled.operations.filter(o => o.op === 'link').map(o => ({ ...o, source: ref(o.source), target: ref(o.target) }));
   const targets = new Set(desiredLinks.map(o => o.target));
@@ -106,17 +116,15 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
     const isAnchor = op.alias === 'plan:section';
     const destination = isAnchor || op.parent === 'plan:section' ? parent : ref(op.parent);
     const existingId = map.get(op.alias);
-    if (existingId && (isAnchor ? anchor : selected.has(existingId))) {
-      const old = isAnchor ? anchor : selected.get(existingId);
-      if (!isAnchor) {
-        const oldParentAlias = aliases.entryAt(aliases.aliasOf(old.id)).parentAlias;
-        const oldParent = oldParentAlias ? aliases.nodeAt(oldParentAlias).id : null;
-        if (oldParent !== destination) operations.push({ op: 'move', target: old.id, parent: destination });
-      }
+    if (existingId && (isAnchor ? existingTrack : selected.has(existingId))) {
+      const old = isAnchor ? existingTrack : selected.get(existingId);
+      const oldParentAlias = aliases.entryAt(aliases.aliasOf(old.id)).parentAlias;
+      const previousParent = oldParentAlias ? aliases.nodeAt(oldParentAlias).id : null;
+      if (previousParent !== destination) operations.push({ op: 'move', target: old.id, parent: destination });
       const update = { op: 'update', target: old.id };
       if (op.title && op.title !== old.title) update.title = op.title;
       if (op.description && op.description !== old.description) update.description = op.description;
-      // Convert the enclosing Group only after all its children have moved.
+      // The Track is empty; its enclosing Group retains the plan's identity.
       if (isAnchor) Object.assign(update, KIND_TO_TYPES.kai);
       else if (op.nodeSubtype !== old.nodeSubtype) Object.assign(update, { nodeType: op.nodeType, nodeSubtype: op.nodeSubtype });
       if (Object.keys(update).length > 2) {
@@ -144,11 +152,13 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
       links: desiredLinks,
       completed: [...selected.values()].filter(n => n.isDone).map(n => ({ id: n.id, doneAt: n.doneAt })),
     },
-    stats: { ...compiled.stats, reused: selected.size, links: desiredLinks.length } };
+    stats: { ...compiled.stats, nodes: compiled.stats.nodes + 1, reused: selected.size, links: desiredLinks.length } };
 }
 
 export function validateTrackDraft(draft, contract) {
   const byId = new Map(draft.aliases.all.map(e => [e.node.id, e]));
+  const container = byId.get(contract.parent)?.node;
+  if (container?.nodeType !== 'fundamental' || container.nodeSubtype !== 'category') return 'The plan must remain inside its enclosing Group.';
   const anchor = byId.get(contract.anchor)?.node;
   if (anchor?.nodeType !== 'fundamental' || anchor.nodeSubtype !== 'downstream' || anchor.children.length) return 'The plan must start with an empty Track whose work sits beside it.';
   const parentOf = entry => entry.parentAlias ? draft.aliases.nodeAt(entry.parentAlias).id : null;

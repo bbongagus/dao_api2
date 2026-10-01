@@ -7,10 +7,12 @@ import { createWriteTools } from './graphWriteTools.js';
 import { trackReworkFixture } from './fixtures/trackRework.js';
 
 export function checkTrack(draft, original) {
-  const track = draft.aliases.nodeAt(original.aliases.aliasOf('area'));
+  const area = draft.aliases.nodeAt(original.aliases.aliasOf('area'));
+  assert.equal(area.nodeSubtype, 'category');
+  const track = area.children.find(n => n.nodeSubtype === 'downstream');
   assert.equal(track.nodeSubtype,'downstream'); assert.equal(track.children.length,0);
   const all = draft.aliases.all.map(e=>e.node);
-  assert.equal(all.filter(n=>n.nodeType==='fundamental'&&n.nodeSubtype==='category').length,0);
+  assert.equal(all.filter(n=>n.nodeType==='fundamental'&&n.nodeSubtype==='category').length,1);
   const milestones=all.filter(n=>n.nodeSubtype==='upstream'); assert.equal(milestones.length,4);
   const children = all.filter(n=>n.nodeType==='dao'&&n.children.length);
   assert.equal(children.length,4); assert.ok(children.every(n=>n.children.length===7));
@@ -20,8 +22,8 @@ export function checkTrack(draft, original) {
     assert.equal(kept.isDone,node.isDone); assert.equal(kept.doneAt,node.doneAt);
   }
   const reachable=new Set();
-  const visit=id=>{if(reachable.has(id))return; reachable.add(id); draft.edges.filter(e=>e.source===id).forEach(e=>visit(e.target));}; visit('area');
-  for(const n of draft.nodes.filter(n=>n.id!=='unrelated')) assert.ok(reachable.has(n.id),`unreachable ${n.title}`);
+  const visit=id=>{if(reachable.has(id))return; reachable.add(id); draft.edges.filter(e=>e.source===id).forEach(e=>visit(e.target));}; visit(track.id);
+  for(const n of area.children) assert.ok(reachable.has(n.id),`unreachable ${n.title}`);
   for(const parent of children) for(const child of parent.children) assert.ok(!draft.edges.some(e=>e.source===child.id||e.target===child.id));
   assert.ok(draft.edges.some(e=>e.source==='profile'&&e.target==='topic1'));
   assert.ok(draft.edges.some(e=>e.source==='plan:s2'&&e.target==='topic4'));
@@ -64,7 +66,8 @@ test('new Track has one root and stage outcomes on the same level',()=>{
   ]};
   const result=compilePlan(p,f); assert.equal(result.error,undefined);
   const track=result.operations.find(o=>o.alias==='plan:section'); assert.equal(track.nodeSubtype,'downstream');
-  assert.ok(result.operations.filter(o=>o.op==='add'&&!/plan:b:calls:/.test(o.alias)).every(o=>o.parent===null));
+  assert.equal(result.operations.find(o=>o.alias==='plan-container').parent,null);
+  assert.ok(result.operations.filter(o=>o.op==='add'&&o.alias!=='plan-container'&&!/plan:b:calls:/.test(o.alias)).every(o=>o.parent==='plan-container'));
   assert.ok(result.operations.some(o=>o.op==='link'&&o.source==='plan:section'&&o.target==='plan:a:work'));
 });
 
@@ -86,4 +89,55 @@ test('completed wrappers and omitted existing children are refused',()=>{
   c.nodes[0].children.at(-1).children.at(-1).children.push({id:'forgotten',title:'Forgotten item',nodeType:'dao',nodeSubtype:'simple',children:[]});
   c.aliases=buildAliasTable(c.nodes);
   assert.match(compilePlan(c.plan,c).error,/Forgotten item.*missing/);
+});
+
+test('root Track gets one container; subsequent edits reuse it and preserve the Track id', () => {
+  const plan = {layout:'track', sequence:true, section:'', sectionTitle:'Plan', stages:[
+    {id:'a',title:'Outcome',steps:[{id:'work',title:'Work',checklist:[]}]}]};
+  const base = {nodes:[],edges:[],aliases:buildAliasTable([])};
+  const first = compilePlan(plan,base);
+  const initial = projectDraft([],[],first.operations,base.aliases);
+  const container = initial.nodes[0];
+  // Reproduce the previously released root-level graph.
+  const nodes = container.children;
+  const aliases = buildAliasTable(nodes);
+  const track = nodes.find(n=>n.nodeSubtype==='downstream');
+  plan.section = aliases.aliasOf(track.id);
+  plan.stages[0].existing = aliases.aliasOf('plan:a');
+  plan.stages[0].steps[0].existing = aliases.aliasOf('plan:a:work');
+  const compiled = compilePlan(plan,{nodes,aliases,edges:initial.edges});
+  assert.equal(compiled.error,undefined);
+  const wrapped = projectDraft(nodes,initial.edges,compiled.operations,aliases);
+  assert.equal(wrapped.nodes.length,1);
+  assert.equal(wrapped.nodes[0].nodeSubtype,'category');
+  assert.ok(wrapped.nodes[0].children.some(n=>n.id===track.id));
+  plan.section = wrapped.aliases.aliasOf(track.id);
+  plan.stages[0].existing = wrapped.aliases.aliasOf('plan:a');
+  plan.stages[0].steps[0].existing = wrapped.aliases.aliasOf('plan:a:work');
+  const repeated = compilePlan(plan,wrapped);
+  assert.equal(repeated.error,undefined);
+  assert.ok(!repeated.operations.some(o=>o.op==='add'));
+});
+
+
+test('editing the enclosing Group again reuses its existing Track', () => {
+  const f = trackReworkFixture();
+  const d = projectDraft(f.nodes,f.edges,compilePlan(f.plan,f).operations,f.aliases);
+  const plan = structuredClone(f.plan);
+  plan.section = d.aliases.aliasOf('area');
+  for(let i=0;i<plan.stages.length;i++) {
+    const stage=plan.stages[i];
+    stage.existing = d.aliases.aliasOf(i===0?'profile':`plan:s${i+1}`);
+    for(const step of stage.steps) {
+      const stepId = step.existing ? f.aliases.nodeAt(step.existing).id : `plan:${stage.id}:${step.id}`;
+      step.existing = d.aliases.aliasOf(stepId);
+      step.checklist = (step.checklist || []).map((item,j)=>({
+        title: typeof item==='string' ? item : item.title,
+        existing: d.aliases.aliasOf(item.existing ? f.aliases.nodeAt(item.existing).id : `plan:${stage.id}:${step.id}:${j+1}`),
+      }));
+    }
+  }
+  const compiled = compilePlan(plan,d);
+  assert.equal(compiled.error,undefined);
+  assert.ok(!compiled.operations.some(o=>o.op==='add'));
 });

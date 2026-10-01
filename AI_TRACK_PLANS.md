@@ -1,7 +1,8 @@
 # Connected Track plans
 
 Implementation, 2026-10-01. Corrects Decision 039's
-weekly-Group interpretation. The requested result is one visible level:
+weekly-Group interpretation. The requested result is one visible level inside
+one enclosing plan Group:
 Track → tasks → Milestone → next stage's tasks → … → final Milestone.
 Parallel article chains and a real finite checklist join each stage outcome.
 
@@ -13,10 +14,12 @@ layout remains for explicit containment and legacy callers; it cannot silently
 consume existing-reference objects. `checklistCount` must equal the number of
 provided items. Existing completed items can be moved into a new checklist.
 
-An existing Group is reused as the Track. All selected tasks and Milestones
-move to its parent level, keeping ids/completion dates. Every piece of work in
+An existing Group stays the container. Its Track, tasks and Milestones sit
+together inside it, keeping ids/completion dates. An existing inner Track is
+reused; a root-level Track gets one enclosing Group. Repeated edits do not add
+more wrappers or Tracks. Every piece of work in
 the old area must be accounted for. Unconnected, unmarked organizational Group
-wrappers are removed only after contents move. Reuse maps are validated before
+nested wrappers are removed only after contents move. Reuse maps are validated before
 staging; duplicate references, lost work, incompatible kinds, incorrect counts,
 missing dependencies and cycles are refused without modifying the old draft.
 External links across the selected scope are conservatively refused, rather
@@ -63,3 +66,20 @@ has not been repaired or rewritten by this implementation.
 Opening a Track through inspect now follows its connected path, including
 checklist contents, so a later edit can read the flat graph without opening
 every node individually. Pagination and stable aliases still apply.
+
+## Containment and geometry correction (local, 2026-10-01)
+
+The earlier release incorrectly converted the outer Group to a root-level
+Track. The compiler and final contract now retain one enclosing Group.
+Canvas layout packs non-overlapping branch spans into reusable display rows,
+including outgoing arrow spans. Logical branch ranking used by the phone path
+is unchanged. Stage chains no longer accumulate rows down the canvas.
+
+Regression coverage includes new plans, grouped rework, wrapping an existing
+root Track, repeated edits by Track or Group, completion retention, frontend
+application, non-overlap and layout idempotence. Local browser application
+passed. On a read-only saved copy of the owner's graph the bounding height
+fell from 4675 to 1588 pixels, with identical coordinates on the second tidy.
+Final checks: backend 498 passed / 15 Redis-dependent skipped; frontend 799
+passed / 91 suites, production build passed (existing chunk-size warning).
+No production graph writes or deployment in this correction.

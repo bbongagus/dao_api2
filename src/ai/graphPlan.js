@@ -49,7 +49,7 @@ section reports the average of the stages.
 
 A Kai starts and collects one entire path: Kai → first stage tasks → Mi →
 next stage tasks → Mi, through the final outcome. Put these nodes on one
-level; the Kai does not contain them. It has no incoming dependencies and
+level inside one enclosing Ryu for the plan; the Kai does not contain them. It has no incoming dependencies and
 must not point to another unrelated Kai. Stages inside this path are expected
 and contribute to the Track's progress. The person's explicit order of stages
 is a prerequisite even if they could choose a different schedule.

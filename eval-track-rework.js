@@ -26,15 +26,16 @@ try {
   const d=projectDraft(f.nodes,f.edges,result.operations,f.aliases);
   const all=d.aliases.all.map(e=>e.node), byId=new Map(all.map(n=>[n.id,n]));
   const milestones=all.filter(n=>n.nodeSubtype==='upstream');
-  const track=byId.get('area');
+  const area=byId.get('area');
+  const track=area.children.find(n=>n.nodeSubtype==='downstream');
   const reach=start=>{const visited=new Set(); const visit=id=>{if(visited.has(id))return;visited.add(id);d.edges.filter(e=>e.source===id).forEach(e=>visit(e.target));};visit(start);return visited;};
-  const reachable=reach('area');
+  const reachable=reach(track.id);
   const lists=all.filter(n=>n.nodeType==='dao'&&n.children.length);
   checks={...checks,
    oneTrack:track?.nodeSubtype==='downstream'&&all.filter(n=>n.nodeSubtype==='downstream').length===1,
    fourOutcomes:milestones.length===4,
-   noGroups:!all.some(n=>n.nodeSubtype==='category'),
-   sameLevel:!track.children.length&&d.nodes.filter(n=>n.id!=='unrelated').every(n=>reachable.has(n.id)),
+   oneContainer:area.nodeSubtype==='category'&&all.filter(n=>n.nodeSubtype==='category').length===1,
+   sameLevel:!track.children.length&&area.children.every(n=>reachable.has(n.id)),
    sequentialOutcomes:milestones.every((m,i)=>milestones.every((other,j)=>i===j||reach(m.id).has(other.id)||reach(other.id).has(m.id))),
    fourChecklists:lists.length===4&&lists.every(n=>n.children.length===7&&n.children.every(c=>!c.children.length&&!d.edges.some(e=>e.source===c.id||e.target===c.id))),
    preserved:f.aliases.all.filter(e=>e.node.nodeType==='dao'||e.node.nodeSubtype==='upstream').every(({node:n})=>byId.get(n.id)?.isDone===n.isDone&&byId.get(n.id)?.doneAt===n.doneAt),
