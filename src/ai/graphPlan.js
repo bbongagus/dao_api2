@@ -21,8 +21,10 @@ it hides work that could start now.
 - dao/simple - a concrete task. Progress is 0 or 1: done or not.
 - dao/withChildren - a step with a checklist inside. Progress is the share of
   the checklist done.
-  Something to be done several times is still one task: put the count in
-  its description ("12 runs over four weeks").
+  When the person wants to tick off a finite number of occurrences (seven
+  comments, five calls), make that many child tasks in a checklist. A count
+  in a title or description is not a checklist. No arrows touch its items;
+  dependencies attach to the checklist parent.
 - fundamental/upstream (Mi) - closes a stage. Progress is the work since the
   previous Mi: it walks left and stops at the previous Mi, or at a Kai,
   without counting either.
@@ -45,9 +47,12 @@ Stages that follow each other are closed by a Mi each, and the next stage's
 first steps hang off that Mi. Each Mi then reports its own stage, and the
 section reports the average of the stages.
 
-A Kai counts everything to its right, so keep it for a direction that depends
-on nothing else and that nothing else depends on. Never run a Kai into
-another stage or point it at another Kai: it would count that work too.
+A Kai starts and collects one entire path: Kai → first stage tasks → Mi →
+next stage tasks → Mi, through the final outcome. Put these nodes on one
+level; the Kai does not contain them. It has no incoming dependencies and
+must not point to another unrelated Kai. Stages inside this path are expected
+and contribute to the Track's progress. The person's explicit order of stages
+is a prerequisite even if they could choose a different schedule.
 
 ## Descriptions
 

@@ -14,6 +14,7 @@
  */
 
 import { KIND_TO_TYPES } from './graphReadTools.js';
+import { compileTrackPlan } from './trackPlanCompiler.js';
 
 export const COLUMN = 380;
 export const ROW = 160;
@@ -39,7 +40,17 @@ function topoOrder(all, dependsOn) {
   return order;
 }
 
-export function compilePlan(plan, { nodes = [], aliases }) {
+export function compilePlan(plan, { nodes = [], aliases, edges = [] }) {
+  if (plan?.layout === 'track') return compileTrackPlan(plan, { nodes, aliases, edges }, compilePlan);
+  if ((plan?.stages || []).some(s => s.existing || (s.steps || []).some(step => step.existing
+    || (step.checklist || []).some(item => typeof item !== 'string')))) {
+    return { error: 'Use layout: track to reuse existing tasks or checklist items.' };
+  }
+  for (const stage of plan?.stages || []) for (const step of stage.steps || []) {
+    if (step.checklistCount !== undefined && step.checklistCount !== (step.checklist || []).length) {
+      return { error: `Step ${step.id} must supply ${step.checklistCount} checklist items.` };
+    }
+  }
   const operations = [];
 
   // --- where the plan goes

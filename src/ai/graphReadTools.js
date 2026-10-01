@@ -98,6 +98,21 @@ export function createReadTools(nodes, aliases, edges = []) {
       const out = [];
       const CHILDREN_CAP = 40;
       const start = Math.max(0, Math.floor(Number(offset) || 0));
+      // A Track's work is beside it, not nested inside. Opening it must
+      // expose its connected path or the agent cannot inspect/reuse it later.
+      let pathNodes = null;
+      if (kindNameOf(entry.node) === 'kai' && !entry.node.children?.length) {
+        const seen = new Set([entry.node.id]);
+        const visit = (id) => {
+          for (const next of links.downstreamOf(id)) {
+            if (seen.has(next)) continue;
+            seen.add(next); visit(next);
+          }
+        };
+        visit(entry.node.id);
+        pathNodes = aliases.all.filter(e => e.node.id !== entry.node.id && seen.has(e.node.id)).map(e => e.node);
+        out.push(`Track path: ${pathNodes.length} connected node(s) beside this Track. Checklist items are shown inside their tasks.`);
+      }
 
       const walk = (current, indent) => {
         out.push(line(current, { description: 'full', indent }));
@@ -106,7 +121,7 @@ export function createReadTools(nodes, aliases, edges = []) {
           if (inside > 0) out.push(`${'  '.repeat(indent + 1)}… ${inside} more below, inspect ${current.alias} with a greater depth to see them`);
           return;
         }
-        const children = current.node.children || [];
+        const children = indent === 0 && pathNodes ? pathNodes : current.node.children || [];
         const skip = indent === 0 ? start : 0;
         const shown = Math.min(children.length, skip + CHILDREN_CAP);
         for (let i = skip; i < shown; i++) {

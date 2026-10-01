@@ -79,6 +79,18 @@ test('inspect shows links by alias', () => {
   assert.match(out, /n4 → n5/);
 });
 
+test('opening a flat Track exposes its path and nested checklist items, but not unrelated work', () => {
+  const nodes = [n('track', 'Track', { nodeType: 'fundamental', nodeSubtype: 'downstream' }),
+    n('list', 'Comments', { children: [n('item', 'Comment 1', { isDone: true })] }),
+    n('result', 'Outcome', { nodeType: 'fundamental', nodeSubtype: 'upstream' }), n('other', 'Unrelated')];
+  const edges = [{ source: 'track', target: 'list' }, { source: 'list', target: 'result' }];
+  const out = createReadTools(nodes, buildAliasTable(nodes), edges).inspect({ alias: 'n1', depth: 3 });
+  assert.match(out, /Track path: 2 connected/);
+  assert.match(out, /Comment 1.*done/);
+  assert.match(out, /Outcome/);
+  assert.doesNotMatch(out, /Unrelated/);
+});
+
 test('inspect of an unknown alias explains itself instead of throwing', () => {
   const out = tools().inspect({ alias: 'n99', depth: 1 });
 

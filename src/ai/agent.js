@@ -45,6 +45,10 @@ export function summariseStaged(staged) {
 export function shapeTurn({ staged, summary, stoppedEarly = false }) {
   const said = (summary || '').trim();
   const ranOutOfRoom = 'I ran out of room while looking around before I finished — ask me to continue, or narrow the request.';
+  if (stoppedEarly && staged.length) return {
+    type: 'error', reason: 'incomplete_plan',
+    message: 'I could not finish checking the whole plan. Nothing has been changed, and this unfinished draft cannot be applied. Please retry.',
+  };
 
   // Moves, checklist items and arrows are implementation details, not a
   // measure of the person's request. Do not discard a draft at 30 edits.
@@ -68,9 +72,7 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 
   return {
     type: 'changes',
-    summary: stoppedEarly
-      ? `${said} (I stopped part-way through — ask me to carry on if this is not all of it.)`.trim()
-      : said,
+    summary: said,
     operations: staged,
     counts: summariseStaged(staged),
   };
@@ -91,7 +93,7 @@ export async function runGraphAgent({
 
   const aliases = buildAliasTable(nodes);
   const read = createReadTools(nodes, aliases, edges);
-  const { tools: write, staged } = createWriteTools(nodes, aliases, edges, { canMove });
+  const { tools: write, staged, validate } = createWriteTools(nodes, aliases, edges, { canMove });
 
   emit({ type: 'status', text: aliases.size === 0 ? 'the graph is empty' : `${aliases.size} nodes in the graph` });
 
@@ -160,7 +162,7 @@ export async function runGraphAgent({
     }),
     betaZodTool({
       name: 'inspect',
-      description: 'Read a saved node and its contents, descriptions and links. This is the saved graph, before this turn’s proposed changes. Use inspect_draft to check your proposal.',
+      description: 'Read a saved node and its contents, descriptions and links. Opening a Track follows its connected path and checklist contents on the same level. This is saved state; use inspect_draft to check proposed changes.',
       inputSchema: z.object({
         alias: z.string().describe('The node to open, e.g. n3'),
         depth: z.number().describe('How many levels down to show, 1 to 6'),
@@ -180,6 +182,7 @@ export async function runGraphAgent({
         const draft = projectDraft(nodes, edges, staged, aliases);
         const view = createReadTools(draft.nodes, draft.aliases, draft.edges);
         return `Draft only — ${staged.length} staged operations; nothing applied.\n`
+          + (validate() ? `Needs repair: ${validate()}\n` : '')
           + (input.alias ? view.inspect(input) : view.overview());
       }),
     }),
@@ -307,22 +310,27 @@ export async function runGraphAgent({
     }),
     betaZodTool({
       name: 'plan_path',
-      description: 'Lay out a plan as stages and the steps inside them. The server turns it into milestones, arrows and positions. Nothing is created until the person confirms.',
+      description: 'Build a connected path from a Track through tasks and Milestones on one level, with real checklists. Reuse existing task/milestone aliases to preserve completed work. A Group can be converted into a flat Track path. Nothing changes until confirmed.',
       inputSchema: z.object({
-        section: z.string().describe('Alias of an existing ryu to build inside; leave it empty to create a new section'),
+        layout: z.enum(['track', 'group']).describe('Use track for a connected goal/path. group is only for explicitly requested containment.'),
+        sequence: z.boolean().describe('true when stages must follow one another in the given order; false to use stage after dependencies'),
+        section: z.string().describe('Existing Track or Group alias to restructure; empty creates a new Track. Staged aliases also work.'),
         sectionTitle: z.string().describe('Title of the new section when section is ""'),
         sectionDescription: z.string(),
         stages: z.array(z.object({
           id: z.string().describe('Short id, unique among stages'),
           title: z.string().describe('The outcome that closes the stage, e.g. "Удостоверение получено"'),
           description: z.string(),
+          existing: z.string().optional().describe('Existing Milestone alias to reuse, or empty for new'),
           after: z.array(z.string()).describe('ids of the stages that must be complete before this one can start'),
           steps: z.array(z.object({
             id: z.string().describe('Short id, unique within the stage'),
             title: z.string(),
             description: z.string(),
+            existing: z.string().optional().describe('Existing task alias to move/reuse, or empty for new. Account for all existing work in the selected area.'),
             after: z.array(z.string()).describe('ids of steps in this same stage that must be done first'),
-            checklist: z.array(z.string()).describe('Items to tick inside this step, or [] for none'),
+            checklistCount: z.number().int().min(0).describe('Required number of individually tickable items; 0 for a plain task. Must equal checklist length.'),
+            checklist: z.array(z.union([z.string(), z.object({ title: z.string(), existing: z.string() })])).describe('Each item is a title, or {title, existing} to keep an already completed item. Seven comments require seven items, not a single task title.'),
           })),
         })),
       }),
@@ -432,6 +440,9 @@ export async function runGraphAgent({
   // off mid-call. pause_turn/compaction never reach here — the runner
   // resumes those on its own — and end_turn/stop_sequence are a complete turn.
   const stoppedEarly = ['tool_use', 'max_tokens', 'model_context_window_exceeded'].includes(final.stop_reason);
+
+  if (staged.length && validate()) return withUsage({ type: 'error', reason: 'invalid_plan',
+    message: 'The proposed path failed its structure check. Nothing has changed. Please retry so I can complete the plan.' });
 
   return withUsage(shapeTurn({ staged, summary, stoppedEarly }));
 }

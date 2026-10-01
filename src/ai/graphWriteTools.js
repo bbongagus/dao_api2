@@ -12,6 +12,8 @@
 import { KIND_TO_TYPES, KIND_LIST, kindNameOf } from './graphReadTools.js';
 import { buildLinkIndex } from './links.js';
 import { compilePlan } from './planCompiler.js';
+import { projectDraft } from './graphDraft.js';
+import { validateTrackDraft } from './trackPlanCompiler.js';
 
 export { KIND_TO_TYPES, KIND_LIST };
 
@@ -38,6 +40,7 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
   let resetUsed = false;
   let planStaged = false; // whether plan() has already succeeded this turn
+  let planContract = null;
   const marked = new Set(); // ids of tasks staged to be ticked or unticked
   const moves = new Map(); // id of a node staged to move → its new parent's id, null for the top level
 
@@ -72,6 +75,11 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
 
   return {
     staged,
+    validate() {
+      if (!planContract) return null;
+      try { return validateTrackDraft(projectDraft(nodes, edges, staged, aliases), planContract); }
+      catch (error) { return error.message; }
+    },
     tools: {
       add({ alias, parent, title, description, kind, x, y }) {
         if (typeof alias !== 'string' || !alias) return 'Give the new node an alias (a string) so other operations can point at it.';
@@ -323,6 +331,7 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         staged.length = 0;
         for (const set of [minted, pendingDeletes, marked, moves, stagedLinks, stagedUnlinks]) set.clear();
         planStaged = false;
+        planContract = null;
         return 'Nothing is staged now. Stage the change you mean from the start.';
       },
 
@@ -340,7 +349,8 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         const earlier = planStaged ? staged.filter((o) => o.plan) : [];
         const earlierAliases = new Set(earlier.filter((o) => o.op === 'add').map((o) => o.alias));
         if (planStaged) {
-          const leaning = staged.some((o) => !o.plan && [o.parent, o.source, o.target].some((ref) => earlierAliases.has(ref)));
+          const earlierRefs = new Set(earlier.flatMap(o => [o.alias, o.target, o.source]).filter(Boolean));
+          const leaning = staged.some((o) => !o.plan && [o.parent, o.source, o.target].some((ref) => earlierRefs.has(ref)));
           if (leaning) {
             return 'A plan is already staged in this turn, and other staged changes point at its nodes. Adjust it with the other tools, or ask for a new plan next turn.';
           }
@@ -349,15 +359,11 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         // A model shown `"" for a new section` sometimes sends the quotes
         // themselves; a pair of quotes names no node, so it means none.
         const section = typeof input?.section === 'string' ? input.section.trim().replace(/^(["'`])\1$/, '') : '';
-        if (section) {
-          const found = resolve(section);
-          if (found?.error) return found.error;
-          if (found && !found.node) {
-            return `${section} is being added in this same turn, and a plan cannot go inside a node that does not exist yet. Leave section empty and give a sectionTitle: the plan makes its own section.`;
-          }
-        }
-
-        const compiled = compilePlan({ ...input, section }, { nodes, aliases });
+        if (input.layout === 'track' && !canMove) return 'Reload the app to apply a Track restructure without losing existing work.';
+        let base;
+        try { base = projectDraft(nodes, edges, staged.filter(o => !o.plan), aliases); }
+        catch (error) { return `Repair the current draft before planning: ${error.message}`; }
+        const compiled = compilePlan({ ...input, section }, base);
         if (compiled.error) return compiled.error;
 
         // compilePlan only knows the plan's own aliases are internally
@@ -376,16 +382,24 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         // Only now, with the new plan known to be good, does the old one go.
         for (const operation of earlier) {
           staged.splice(staged.indexOf(operation), 1);
-          if (operation.op === 'add') minted.delete(operation.alias);
-          if (operation.op === 'link') stagedLinks.delete(pair(operation.source, operation.target));
         }
 
         for (const operation of compiled.operations) {
           staged.push({ ...operation, plan: true });
-          if (operation.op === 'add') minted.set(operation.alias, operation);
-          if (operation.op === 'link') stagedLinks.add(pair(operation.source, operation.target));
+        }
+        // Rebuild every staged index, including moves/unlinks produced by a
+        // Track restructure, so replacement and later tools see one draft.
+        for (const set of [minted, pendingDeletes, marked, moves, stagedLinks, stagedUnlinks]) set.clear();
+        for (const op of staged) {
+          if (op.op === 'add') minted.set(op.alias, op);
+          if (op.op === 'delete') pendingDeletes.add(op.target);
+          if (op.op === 'done') marked.add(op.target);
+          if (op.op === 'move') moves.set(op.target, op.parent);
+          if (op.op === 'link') { stagedLinks.add(pair(op.source, op.target)); stagedUnlinks.delete(pair(op.source, op.target)); }
+          if (op.op === 'unlink') for (const key of [pair(op.source, op.target), pair(op.target, op.source)]) { stagedUnlinks.add(key); stagedLinks.delete(key); }
         }
         planStaged = true;
+        planContract = compiled.contract || null;
 
         const now = compiled.startNow.length
           ? ` Can start now: ${compiled.startNow.map((title) => `"${title}"`).join(', ')}.`

@@ -22,9 +22,10 @@ test('the prompt tells the agent it must look before it changes', () => {
   assert.match(AGENT_SYSTEM_PROMPT, /inspect/);
 });
 
-test('the prompt does not send a restructure to plan_path, which only appends', () => {
-  assert.equal(/rebuild a section/.test(AGENT_SYSTEM_PROMPT), false);
-  assert.match(AGENT_SYSTEM_PROMPT, /does not replace what a section already holds/);
+test('the prompt sends a restructure to Track planning with existing references', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /layout: "track"/);
+  assert.match(AGENT_SYSTEM_PROMPT, /existing aliases/);
+  assert.match(AGENT_SYSTEM_PROMPT, /seven items/);
 });
 
 test('the prompt never mentions uuids', () => {
@@ -157,7 +158,7 @@ test('an arrow is a dependency, not calendar order — and an arrow where there 
 });
 
 test('a stage waits only for what it cannot start without, and every after is questioned before plan_path', () => {
-  assert.match(AGENT_SYSTEM_PROMPT, /cannot\s+start\s+without/);
+  assert.match(AGENT_SYSTEM_PROMPT, /sequence: true/);
   assert.match(AGENT_SYSTEM_PROMPT, /could\s+this\s+stage\s+start\s+without\s+that\s+one/);
   assert.match(AGENT_SYSTEM_PROMPT, /do\s+not\s+turn\s+the\s+months\s+into\s+a\s+chain/);
 });

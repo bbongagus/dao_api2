@@ -530,14 +530,14 @@ test('a section given as a pair of quotes means a new section — a model copies
   }
 });
 
-test('a plan cannot go inside a section added in the same turn, and is told what to do instead', () => {
-  const { tools } = make();
+test('a plan can use a Group staged in this turn', () => {
+  const { tools, staged } = make();
 
   tools.add({ alias: 'remont', parent: '', title: 'Ремонт', description: '', kind: 'ryu', x: 0, y: 0 });
   const said = tools.plan({ ...move, section: 'remont' });
 
-  assert.match(said, /same turn/);
-  assert.match(said, /sectionTitle/);
+  assert.match(said, /^Staged:/);
+  assert.ok(staged.some(o => o.op === 'add' && o.parent === 'remont'));
 });
 
 // --- markDone: the person says they did something, and the task is ticked. ---

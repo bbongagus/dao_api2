@@ -91,27 +91,15 @@ test('an ordinary 30-operation proposal is still offered', () => {
   assert.equal(turn.operations.length, 30);
 });
 
-test('a large unfinished draft stays reviewable and is explicitly labelled partial', () => {
-  const staged = Array.from({ length: 84 }, () => ({ op: 'add' }));
-  const turn = shapeTurn({ staged, summary: 'Draft', stoppedEarly: true });
-  assert.equal(turn.type, 'changes');
-  assert.equal(turn.operations.length, 84);
-  assert.match(turn.summary, /stopped part-way through/);
-});
-
-test('a turn that ran out of iterations still offers what it staged', () => {
-  const turn = shapeTurn({
-    staged: [{ op: 'add', alias: 'x' }],
-    summary: 'Начал разбирать.',
-    stoppedEarly: true,
-  });
-
-  assert.equal(turn.type, 'changes');
-  assert.match(turn.summary, /Начал разбирать/);
-  // Substance, not just "not identical to the input": the summary must
-  // actually say the turn stopped early, not merely differ by whitespace.
-  assert.match(turn.summary, /stopped part-way through/);
-  assert.match(turn.summary, /ask me to carry on/);
+test('unfinished drafts cannot be applied, regardless of size', () => {
+  for (const count of [1, 84]) {
+    const staged = Array.from({ length: count }, () => ({ op: 'add' }));
+    const turn = shapeTurn({ staged, summary: 'Incomplete', stoppedEarly: true });
+    assert.equal(turn.type, 'error');
+    assert.equal(turn.reason, 'incomplete_plan');
+    assert.equal(turn.operations, undefined);
+    assert.match(turn.message, /cannot be applied/);
+  }
 });
 
 test('iterations exhausted before staging anything says so, not that there was nothing to do', () => {
@@ -789,4 +777,17 @@ test('weekly regrouping can read its draft and retain completed work beyond 30 e
   assert.deepEqual(draft.aliases.nodeAt(ref('unrelated')), { ...nodes[1], linkedNodeIds: {} });
   assert.deepEqual(nodes, original);
   assert.ok(!result.operations.some(o => ['delete', 'done'].includes(o.op)));
+});
+
+test('a later tool edit cannot offer a broken Track for Apply', async () => {
+  const { trackReworkFixture } = await import('./fixtures/trackRework.js');
+  const f = trackReworkFixture();
+  const { turn } = runScripted([
+    ['plan_path', f.plan],
+    ['unlink_nodes', { source: 'plan:s2', target: f.aliases.aliasOf('topic4') }],
+  ], { nodes: f.nodes, edges: f.edges, canMove: true });
+  const result = await turn;
+  assert.equal(result.type, 'error');
+  assert.equal(result.reason, 'invalid_plan');
+  assert.equal(result.operations, undefined);
 });
