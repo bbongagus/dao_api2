@@ -27,6 +27,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Rehearse encrypted backup recovery with synthetic data
+        run: node scripts/check-backup-recovery.js redis://127.0.0.1:6379/14 redis://127.0.0.1:6379/15
       # The property authentication exists for, checked against a running
       # server: nobody reaches a graph that is not their own.
       - name: Live authentication and isolation test

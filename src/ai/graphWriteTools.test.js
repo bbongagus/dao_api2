@@ -616,13 +616,26 @@ test('markDone on a task with items inside names the items still to tick', () =>
   assert.equal(staged.length, 0);
 });
 
-test('markDone refuses a node added in the same turn and an alias never handed out', () => {
+test('markDone preserves completed work imported in this turn, but refuses unknown aliases', () => {
   const { tools, staged } = onDay();
 
   tools.add({ alias: 'bread', parent: '', title: 'Хлеб', description: '', kind: 'dao', x: 0, y: 0 });
-  assert.doesNotMatch(tools.markDone({ target: 'bread', done: true }), /^Staged:/);
+  assert.match(tools.markDone({ target: 'bread', done: true }), /^Staged:/);
   assert.doesNotMatch(tools.markDone({ target: 'n99', done: true }), /^Staged:/);
-  assert.equal(staged.length, 1, 'only the add');
+  assert.deepEqual(staged.at(-1), { op: 'done', target: 'bread', isDone: true });
+  assert.equal(staged.length, 2, 'the task and its completion, still only proposed');
+});
+
+test('imported milestones and checklists must take their progress from their tasks', () => {
+  const { tools, staged } = make();
+  tools.add({ alias: 'stage', parent: '', title: 'Ready', kind: 'mi' });
+  tools.add({ alias: 'list', parent: '', title: 'Documents', kind: 'dao' });
+  tools.add({ alias: 'passport', parent: 'list', title: 'Passport', kind: 'dao' });
+  assert.doesNotMatch(tools.markDone({ target: 'stage', done: true }), /^Staged:/);
+  assert.match(tools.markDone({ target: 'list', done: true }), /Passport/);
+  assert.match(tools.markDone({ target: 'passport', done: true }), /^Staged:/);
+  assert.doesNotMatch(tools.markDone({ target: 'passport', done: true }), /^Staged:/);
+  assert.equal(staged.filter((op) => op.op === 'done').length, 1);
 });
 
 test('markDone asks for a yes or no rather than guessing one', () => {
@@ -754,4 +767,14 @@ test('startOver drops everything staged this turn, so the right set can be stage
   assert.match(tools.add({ alias: 'box', parent: a('sec'), title: 'Коробка', description: '', kind: 'ryu', x: 0, y: 0 }), /^Staged:/, 'the alias is free again');
   assert.match(tools.update({ target: a('mi'), title: 'Темы выбраны!', description: '', kind: '' }), /^Staged:/, 'the node is no longer staged for deletion');
   assert.match(tools.move({ target: a('t1'), parent: a('sec') }), /^Staged:/);
+});
+
+test('reworking cannot delete completed work or a connected milestone, even after unlinking', () => {
+  const nodes = [n('done', 'Written draft', { isDone: true }), n('mi', 'Published', { nodeType: 'fundamental', nodeSubtype: 'upstream' })];
+  const aliases = buildAliasTable(nodes);
+  const { tools, staged } = createWriteTools(nodes, aliases, [{ source: 'done', target: 'mi' }]);
+  assert.match(tools.remove({ target: aliases.aliasOf('done') }), /will not delete/);
+  tools.unlink({ source: aliases.aliasOf('done'), target: aliases.aliasOf('mi') });
+  assert.match(tools.remove({ target: aliases.aliasOf('mi') }), /will not delete/);
+  assert.equal(staged.some((op) => op.op === 'delete'), false);
 });

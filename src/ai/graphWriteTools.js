@@ -148,6 +148,12 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         if (found?.error) return found.error;
         if (!found) return `There is no node called ${target}.`;
 
+        if (found.node?.isDone || (found.node?.nodeType === 'fundamental'
+          && (edges.some((e) => e.source === found.id || e.target === found.id)
+            || Object.values(found.node.linkedNodeIds || {}).some((ids) => ids?.length)))) {
+          return `I will not delete "${found.node.title}" — it contains completed work or anchors the plan's connections. Move or update it instead. The person can delete it manually if that is what they want.`;
+        }
+
         // Deleting a parent takes its subtree with it, and nothing the agent
         // has read tells it what that costs. Check existing children that are
         // not staged to move out, and any children staged to be added or
@@ -273,9 +279,14 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         const found = resolve(target);
         if (found?.error) return found.error;
         if (!found) return `There is no node called ${target}. Use tasks to find the right one.`;
-        if (!found.node) return `${target} is being added in this same turn; it can be ticked once it exists.`;
-
-        const { node } = found;
+        // An imported plan can contain work already done. Its new tasks
+        // have aliases until Apply creates them; the client resolves these
+        // before applying ticks. Aggregate nodes still cannot be ticked.
+        const node = found.node || {
+          ...minted.get(found.id), id: found.id, isDone: false,
+          children: staged.filter((op) => op.op === 'add' && op.parent === found.id)
+            .map((op) => ({ ...op, id: op.alias, isDone: false })),
+        };
         if (kindNameOf(node) !== 'dao') {
           return `"${node.title}" is a ${kindNameOf(node)}: its progress comes from the tasks it counts, not from a tick of its own. Mark those tasks instead.`;
         }
@@ -285,7 +296,7 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         if (node.children?.length) {
           const left = node.children
             .filter((child) => Boolean(child.isDone) !== done)
-            .map((child) => `${aliases.aliasOf(child.id)} "${child.title}"`);
+            .map((child) => `${aliases.aliasOf(child.id) || child.id} "${child.title}"`);
           return left.length
             ? `"${node.title}" has ${node.children.length} item(s) inside, and its progress is theirs. Mark the ones the person means: ${left.join(', ')}.`
             : `"${node.title}" has ${node.children.length} item(s) inside, and every one is already ${done ? 'done' : 'not done'}. Nothing to change.`;
@@ -376,7 +387,10 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
           ? ` Can start now: ${compiled.startNow.map((title) => `"${title}"`).join(', ')}.`
           : '';
         const replaced = earlier.length ? ' It replaces the plan staged earlier in this turn.' : '';
-        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}${replaced}`;
+        const taskRefs = compiled.operations.filter((op) => op.op === 'add' && op.nodeType === 'dao'
+          && !compiled.operations.some((child) => child.op === 'add' && child.parent === op.alias))
+          .map((op) => `${op.alias} "${op.title}"`).join('; ');
+        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}${replaced} Task references for work the person already completed: ${taskRefs}.`;
       },
     },
   };

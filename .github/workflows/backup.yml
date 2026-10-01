@@ -1,0 +1,33 @@
+name: encrypted Redis backup
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: redis-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: ${{ vars.BACKUPS_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Capture and encrypt
+        env:
+          REDIS_URL: ${{ secrets.BACKUP_REDIS_URL }}
+          BACKUP_KEY_B64: ${{ secrets.BACKUP_KEY_B64 }}
+        run: node scripts/backup-encrypted.js backup "$RUNNER_TEMP/dao.daobak"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dao-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/dao.daobak
+          if-no-files-found: error
+          retention-days: 30
