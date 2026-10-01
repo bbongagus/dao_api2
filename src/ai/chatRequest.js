@@ -20,6 +20,9 @@ const Message = z.object({
 });
 
 const ChatRequest = z.object({
+  requestId: z.string().uuid().optional(),
+  chatId: z.string().min(1).max(100).optional(),
+  displayText: z.string().max(MAX_MESSAGE_CHARS).optional(),
   // No cap on how many: a long conversation is billed, and the monthly quota
   // (spend.js) bounds what it costs.
   messages: z.array(Message).min(1),

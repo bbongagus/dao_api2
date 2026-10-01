@@ -36,6 +36,7 @@ import { createOperationHandler, graphQueue } from './handlers/operationHandler.
 
 // Import routes
 import { setupGraphRoutes } from './routes/graphRoutes.js';
+import { createChatJobStore } from './ai/chatJobStore.js';
 import { setupAIRoutes } from './routes/aiRoutes.js';
 import { setupOnboardingRoutes } from './routes/onboardingRoutes.js';
 
@@ -195,7 +196,7 @@ setupWebSocketHandler({
 
 // Setup REST API routes
 app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients, graphQueue }));
-app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger }));
+app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger, jobs: createChatJobStore(redis) }));
 setupSpeechSocket({ wss: speechWss, verifyToken, ledger });
 app.use('/api', setupOnboardingRoutes({ redis }));
 

@@ -699,3 +699,23 @@ test('a ramp that has asked its four questions is told to plan, in a system bloc
   // The cached blocks are untouched: the extra one comes after them, unmarked.
   assert.equal(seen[1].system[2].cache_control, undefined);
 });
+
+test('a second start_over stops the loop before more tools or model calls and retains billed usage', async () => {
+  let iterations = 0, callsExecuted = 0;
+  const client = { beta: { messages: { toolRunner: () => ({
+    async *[Symbol.asyncIterator]() {
+      for (let i = 0; i < 4; i++) {
+        iterations++;
+        yield { content: [{ type: 'tool_use', name: 'start_over' }], usage: { input_tokens: 100, output_tokens: 10 }, stop_reason: 'tool_use' };
+        callsExecuted++;
+      }
+    },
+    done: () => { throw new Error('must stop early'); },
+  }) } } };
+  const result = await runGraphAgent({ client, model: 'claude-sonnet-5', nodes: [], currentPath: [], messages: [{ role: 'user', content: 'make a plan' }], emit: noEmit });
+  assert.equal(result.reason, 'staging_loop');
+  assert.equal(iterations, 2);
+  assert.equal(callsExecuted, 1);
+  assert.equal(result.usage.calls, 2);
+  assert.equal(result.operations, undefined);
+});

@@ -36,6 +36,7 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
   const staged = [];
   const minted = new Map(); // alias the model invented → its staged add
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
+  let resetUsed = false;
   let planStaged = false; // whether plan() has already succeeded this turn
   const marked = new Set(); // ids of tasks staged to be ticked or unticked
   const moves = new Map(); // id of a node staged to move → its new parent's id, null for the top level
@@ -316,6 +317,9 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
       // ask the person not to confirm — and the person, shown one Apply for
       // the whole set, confirmed (2026-09-25).
       startOver() {
+        if (!staged.length) return 'Nothing is staged. Do not start over: fix the refused tool input and call plan_path or the relevant edit tool directly.';
+        if (resetUsed) return 'The draft has already been reset once. Do not reset again. Repair it with update_node or a corrected plan_path, or explain the specific obstacle.';
+        resetUsed = true;
         staged.length = 0;
         for (const set of [minted, pendingDeletes, marked, moves, stagedLinks, stagedUnlinks]) set.clear();
         planStaged = false;

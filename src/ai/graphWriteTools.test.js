@@ -778,3 +778,14 @@ test('reworking cannot delete completed work or a connected milestone, even afte
   assert.match(tools.remove({ target: aliases.aliasOf('mi') }), /will not delete/);
   assert.equal(staged.some((op) => op.op === 'delete'), false);
 });
+
+test('empty resets give repair instructions, and a draft cannot be repeatedly erased', () => {
+  const { tools, staged, a } = onArticles();
+  assert.match(tools.startOver(), /Nothing is staged/);
+  tools.update({ target: a('t1'), title: 'First draft', description: '', kind: '' });
+  tools.startOver();
+  tools.update({ target: a('t1'), title: 'Repaired draft', description: '', kind: '' });
+  assert.match(tools.startOver(), /already been reset once/);
+  assert.equal(staged.length, 1);
+  assert.equal(staged[0].title, 'Repaired draft');
+});

@@ -155,6 +155,11 @@ stop and explain it.
 The person sees one Apply for the whole set. If you find that something you
 staged this turn is wrong, call \`start_over\` and stage the right set; never
 ask the person not to confirm.
+Use start_over at most once, and only when a draft actually exists. A refused
+tool changes nothing: correct that tool's arguments directly. plan_path can
+replace its own earlier plan atomically, so do not clear a valid draft just
+to revise its stages. If a correction still fails, state the specific obstacle
+instead of repeatedly resetting or claiming that work was applied.
 
 Your earlier replies in this conversation that proposed changes end with a
 record in square brackets, added by the app: what that turn proposed, by

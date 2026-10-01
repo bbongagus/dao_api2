@@ -6,6 +6,7 @@
  */
 
 import express from 'express';
+import { JOB_TIMEOUT_MS } from '../ai/chatJobStore.js';
 import { clipText } from '../services/journal.js';
 import { parseChatRequest } from '../ai/chatRequest.js';
 import { isPriced } from '../ai/cost.js';
@@ -47,7 +48,7 @@ async function defaultRunAgent({ provider, ...params }) {
  *        the environment on every request by default (provider.js).
  */
 export function setupAIRoutes({
-  getGraph, journal = null, ledger = null, runAgent = defaultRunAgent, provider: getProvider = resolveProvider,
+  getGraph, journal = null, ledger = null, jobs = null, runAgent = defaultRunAgent, provider: getProvider = resolveProvider,
 }) {
   // Built per call, not once per module: a module-level router accumulated the
   // handlers of every setup and answered them all with the first one's
@@ -58,6 +59,51 @@ export function setupAIRoutes({
   // retry loop, run turns in parallel and spend a month's quota in a minute —
   // the check before a turn only sees what has already been charged.
   const inFlight = new Set();
+  const controllers = new Map();
+  const jobKey = (user, id) => JSON.stringify([user, id]);
+  const readJob = async (user, job) => {
+    // A worker that vanished during a deploy must not look busy forever.
+    if (job?.state === 'running' && Date.now() - job.updatedAt > 45000) {
+      job = { ...job, state: 'finished', result: { type: 'error', reason: 'interrupted', message: 'The server restarted before the reply finished. Please try again. Your plan has not changed.' } };
+      await jobs.save(user, job);
+      await jobs.release(user, job.id);
+    }
+    return job;
+  };
+  router.get('/turns/latest', async (req, res) => {
+    try {
+      if (!jobs) return res.status(503).json({ error: 'unavailable' });
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(req.query.graphId || 'main')) return res.sendStatus(400);
+      const job = await readJob(req.userId, await jobs.latest(req.userId, req.query.graphId || 'main'));
+      res.set('Cache-Control', 'no-store').json({ job: job && !await jobs.acknowledged(req.userId, job.id) ? job : null });
+    } catch { res.status(503).json({ error: 'unavailable' }); }
+  });
+  router.get('/turns/:id', async (req, res) => {
+    try {
+      const job = jobs && await readJob(req.userId, await jobs.get(req.userId, req.params.id));
+      if (!job) return res.sendStatus(404);
+      res.set('Cache-Control', 'no-store').json({ job });
+    } catch { res.status(503).json({ error: 'unavailable' }); }
+  });
+  router.post('/turns/:id/stop', async (req, res) => {
+    try {
+      const job = jobs && await jobs.get(req.userId, req.params.id);
+      if (!job) return res.sendStatus(404);
+      if (job.state === 'running') {
+        await jobs.cancel(req.userId, job.id);
+        controllers.get(jobKey(req.userId, job.id))?.abort();
+      }
+      res.sendStatus(202);
+    } catch { res.status(503).json({ error: 'unavailable' }); }
+  });
+  router.post('/turns/:id/ack', async (req, res) => {
+    try {
+      const job = jobs && await jobs.get(req.userId, req.params.id);
+      if (!job) return res.sendStatus(404);
+      await jobs.acknowledge(req.userId, job.id);
+      res.sendStatus(204);
+    } catch { res.status(503).json({ error: 'unavailable' }); }
+  });
 
   /** What this person has left this month. */
   router.get('/balance', async (req, res) => {
@@ -84,7 +130,15 @@ export function setupAIRoutes({
     if (!parsed.ok) {
       return res.status(400).json({ success: false, error: parsed.error });
     }
-    const { messages, currentPath, graphId, mode, applies } = parsed.value;
+    const { messages, currentPath, graphId, mode, applies, requestId, chatId, displayText } = parsed.value;
+    let job = null;
+    if (requestId) {
+      if (!jobs) return res.status(503).json({ error: 'background_unavailable' });
+      try {
+        const existing = await readJob(userId, await jobs.get(userId, requestId));
+        if (existing) return res.status(202).json({ job: existing });
+      } catch { return res.status(503).json({ error: 'unavailable' }); }
+    }
 
     const provider = getProvider();
     if (!provider.configured) {
@@ -122,6 +176,14 @@ export function setupAIRoutes({
     if (inFlight.has(userId)) {
       return res.status(409).json({ error: 'turn_in_progress' });
     }
+    if (requestId) {
+      job = { id: requestId, chatId, graphId, mode, messages, displayText, state: 'running', status: 'Thinking…', updatedAt: Date.now(), createdAt: Date.now() };
+      try {
+        const outcome = await jobs.create(userId, job);
+        if (outcome === 'existing') return res.status(202).json({ job: await jobs.get(userId, requestId) });
+        if (outcome !== 'created') return res.status(409).json({ error: 'turn_in_progress' });
+      } catch { return res.status(503).json({ error: 'unavailable' }); }
+    }
     inFlight.add(userId);
 
     res.writeHead(200, {
@@ -134,16 +196,25 @@ export function setupAIRoutes({
 
     const emit = (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); };
 
-    // Watch the response, not the request: `req` emits 'close' as soon as its
-    // body has been read, which is immediately.
-    //
-    // The flag used only to suppress further writes, so a person closing the
-    // tab left the agent running — up to sixteen upstream requests, every one
-    // of them billed, for an answer nobody would ever see. The controller
-    // stops them.
+    // Closing a modern client's stream detaches it; only Stop cancels its job.
+    // Old clients retain their original cancellation semantics.
     const leaving = new AbortController();
     let aborted = false;
-    res.on('close', () => { aborted = true; leaving.abort(); });
+    let timedOut = false;
+    let heartbeatBusy = false;
+    res.on('close', () => { if (!res.writableEnded) { aborted = true; if (!job) leaving.abort(); } });
+    if (job) controllers.set(jobKey(userId, job.id), leaving);
+    const deadline = setTimeout(() => { timedOut = true; leaving.abort(); }, JOB_TIMEOUT_MS);
+    const heartbeat = job && setInterval(async () => {
+      if (heartbeatBusy) return;
+      heartbeatBusy = true;
+      try {
+        if (await jobs.cancelled(userId, job.id)) leaving.abort();
+        job.updatedAt = Date.now();
+        await jobs.save(userId, job);
+      } catch { leaving.abort(); }
+      finally { heartbeatBusy = false; }
+    }, 10000);
 
     const { model } = provider;
     const startedAt = Date.now();
@@ -153,7 +224,8 @@ export function setupAIRoutes({
     try {
       const graph = await getGraph(graphId, userId);
 
-      result = await runAgent({
+      if (job && await jobs.cancelled(userId, job.id)) leaving.abort();
+      result = leaving.signal.aborted ? { type: 'cancelled', message: 'Stopped.' } : await runAgent({
         provider,
         signal: leaving.signal,
         nodes: graph?.nodes || [],
@@ -164,17 +236,25 @@ export function setupAIRoutes({
         // A tab from before moves would skip one and still apply a delete
         // staged after it, taking the moved nodes with the deleted parent.
         canMove: applies.includes('move'),
-        emit: (event) => { if (!aborted) emit(event); },
+        emit: (event) => { if (job && event.type === 'status') job.status = event.text; if (!aborted) emit(event); },
         onToolCall: (call) => toolCalls.push(call),
       });
 
+      if (leaving.signal.aborted) result = { ...result, type: timedOut ? 'error' : 'cancelled', reason: timedOut ? 'timeout' : 'cancelled', message: timedOut ? 'The reply took too long. Please try a smaller request. Your plan has not changed.' : 'Stopped. Your plan has not changed.' };
+      if (job) {
+        job.state = 'finished'; job.result = result; job.updatedAt = Date.now();
+        await jobs.save(userId, job);
+      }
       if (!aborted) emit({ type: 'result', result });
     } catch (error) {
       logger.error('AI chat error:', error);
-      result = { type: 'error', message: error.message || 'AI chat failed' };
+      result = { usage: result?.usage, type: 'error', message: 'The assistant could not finish. Please try again. Your plan has not changed.' };
+      if (job) { job.state = 'finished'; job.result = result; try { await jobs.save(userId, job); } catch { /* readJob reports a stale worker */ } }
       if (!aborted) emit(result);
     } finally {
-      inFlight.delete(userId);
+      clearTimeout(deadline);
+      if (heartbeat) clearInterval(heartbeat);
+      if (job) controllers.delete(jobKey(userId, job.id));
       if (!aborted) res.end();
 
       // Charged after the fact: a turn's cost is only known once it has run,
@@ -190,6 +270,9 @@ export function setupAIRoutes({
         }
       }
 
+      if (job) { try { await jobs.release(userId, job.id); } catch { /* lease expires */ } }
+      inFlight.delete(userId);
+
       // The turn as it happened, so "what did it just do?" has an answer
       // after the chat window is gone.
       const lastRequest = [...messages].reverse().find((m) => m.role === 'user');
@@ -199,7 +282,8 @@ export function setupAIRoutes({
         mode,
         model,
         ms: Date.now() - startedAt,
-        aborted,
+        aborted: leaving.signal.aborted,
+        disconnected: aborted,
         usage: result?.usage ?? null,
         tools: toolCalls.map((call) => ({ ...call, result: clipText(call.result, TOOL_RESULT_LIMIT) })),
         result,

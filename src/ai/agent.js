@@ -289,13 +289,13 @@ export async function runGraphAgent({
     }),
     betaZodTool({
       name: 'start_over',
-      description: 'Drop everything you staged in this turn, to stage the right change from scratch. Use it instead of asking the person not to confirm.',
+      description: 'Discard a wrong staged draft, at most once per turn. Do not use on an empty draft or to retry a refused tool. plan_path replaces its prior plan atomically when possible.',
       inputSchema: z.object({}),
       run: reportedWrite(
         'start_over',
         // Its answer is not a "Staged:" one, and it cannot fail.
-        () => 'starting over',
-        () => 'starting over',
+        () => 'revising the draft',
+        () => 'checking the draft',
         () => write.startOver(),
       ),
     }),
@@ -373,7 +373,16 @@ export async function runGraphAgent({
       tools,
     }, { signal });
 
-    for await (const message of runner) meter.add(model, message.usage);
+    let resets = 0;
+    for await (const message of runner) {
+      meter.add(model, message.usage);
+      resets += (message.content || []).filter((block) => block.type === 'tool_use' && block.name === 'start_over').length;
+      if (resets > 1) {
+        // The SDK yields the response before running its tools. Returning
+        // closes the iterator before another destructive reset or paid call.
+        return withUsage({ type: 'error', reason: 'staging_loop', message: 'I got stuck revising the draft and stopped before making changes. Try asking for one part of the plan first.' });
+      }
+    }
     final = await runner.done();
   } catch (error) {
     // Typed, most specific first. APIConnectionError is itself a subclass of
