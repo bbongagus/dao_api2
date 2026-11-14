@@ -16,15 +16,34 @@
  * part — the step chosen deleted, a reset, a tick older than the second
  * arrow — and every reader goes by the choice.
  *
- * The rule is the editor's: everything down to `forkSets` is
- * graphy/stores/services/forks.js line for line, with its tests, because the
- * agent has to agree with the screen on what a fork is and what it leaves
- * out. Change both together. `readForks` is the server's own: it applies the
- * rule to a stored graph.
+ * The rule is the editor's: everything from here down to `forkSets` is
+ * graphy/stores/services/forks.js line for line (as of its commit e1720d4),
+ * with its tests, because the agent has to agree with the screen on what a
+ * fork is and what it leaves out. Change both together. `readForks` is the
+ * server's own: it applies the rule to a stored graph, level by level, as
+ * the editor's ProgressCalculator does.
  */
 
 const marked = (node) => node?.fork === true;
 const plainTask = (node) => node.nodeType === 'dao' && (node.children?.length ?? 0) === 0;
+
+/**
+ * A node's fork fields as the model can hold them. The server keeps whatever
+ * an update carries, so these can arrive as anything; what cannot be read is
+ * taken for "no fork, no choice, no names", never for a reason not to load.
+ * @returns {{ fork: boolean, choice: string|null, forkOptions: Array<{ target, label, hint }> }}
+ */
+export const cleanFork = ({ fork, choice, forkOptions } = {}) => ({
+  fork: fork === true,
+  choice: typeof choice === 'string' ? choice : null,
+  forkOptions: (Array.isArray(forkOptions) ? forkOptions : [])
+    .filter((option) => option && typeof option.target === 'string')
+    .map((option) => ({
+      target: option.target,
+      label: typeof option.label === 'string' ? option.label : '',
+      hint: typeof option.hint === 'string' ? option.hint : '',
+    })),
+});
 
 /** Whether a level may hold a fork at all: asked before its arrows are read. */
 export const mayFork = (level) => level.some(marked);

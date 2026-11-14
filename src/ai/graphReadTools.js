@@ -14,7 +14,7 @@
  */
 
 import { buildLinkIndex } from './links.js';
-import { readForks } from './forks.js';
+import { cleanFork, readForks } from './forks.js';
 
 const SHORT_DESCRIPTION = 120;
 const TASKS_CAP = 300;
@@ -85,7 +85,7 @@ export function createReadTools(nodes, aliases, edges = []) {
     // named by the step it leads to.
     const fork = forks.forkOf.get(node.id);
     if (fork) {
-      const labels = new Map((Array.isArray(node.forkOptions) ? node.forkOptions : []).map((o) => [o?.target, o?.label]));
+      const labels = new Map(cleanFork(node).forkOptions.map((o) => [o.target, o.label]));
       const option = (id) => `"${labels.get(id) || aliases.nodeAt(aliases.aliasOf(id)).title}" → ${aliases.aliasOf(id)}`;
       parts.push(`fork, one of: ${fork.targets.map(option).join('; ')}`);
       parts.push(fork.choice ? `chosen: ${option(fork.choice)}` : 'not chosen yet');

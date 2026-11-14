@@ -387,6 +387,28 @@ test('overview and search show a fork the same way', () => {
   assert.equal(read.search({ text: 'едем' }), line);
 });
 
+test('option names that arrive malformed fall back to the steps, and never break the line', () => {
+  const nodes = [
+    n('way', 'Как едем?', {
+      fork: true, choice: null,
+      forkOptions: [null, 'junk', { target: 'bus', label: 5 }, { target: 7, label: 'x' }, { target: 'fly', label: { ru: 'Самолётом' } }],
+    }),
+    n('bus', 'Автобус'), n('fly', 'Самолёт'),
+  ];
+  const edges = [{ source: 'way', target: 'bus' }, { source: 'way', target: 'fly' }];
+  const out = createReadTools(nodes, buildAliasTable(nodes), edges).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [dao] Как едем? · n1 → n2, n3 · fork, one of: "Автобус" → n2; "Самолёт" → n3 · not chosen yet');
+});
+
+test('a fork whose option names are not a list at all still reads', () => {
+  const nodes = [n('way', 'Как едем?', { fork: true, choice: 'bus', forkOptions: 'none' }), n('bus', 'Автобус'), n('fly', 'Самолёт')];
+  const edges = [{ source: 'way', target: 'bus' }, { source: 'way', target: 'fly' }];
+  const out = createReadTools(nodes, buildAliasTable(nodes), edges).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [dao] Как едем? · n1 → n2, n3 · fork, one of: "Автобус" → n2; "Самолёт" → n3 · chosen: "Автобус" → n2 · done');
+});
+
 // The mark alone makes no fork: with nothing to choose between, the node is
 // the task it otherwise is, on the screen and here.
 test('a task marked as a fork with one way on, or none, reads as the task it is', () => {

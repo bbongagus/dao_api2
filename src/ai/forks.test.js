@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { forkSets, forksOf, mayFork, readForks } from './forks.js';
+import { cleanFork, forkSets, forksOf, mayFork, readForks } from './forks.js';
 import { buildLinkIndex } from './links.js';
 
 const walker = (arrows) => (id) => arrows[id] || [];
@@ -127,6 +127,28 @@ test('survives arrows that run in a circle', () => {
     assert.equal(mayFork([]), false);
   });
 }
+
+// The server keeps whatever an update carries, so a node's fork fields can
+// arrive as anything; what cannot be read is no fork, no choice, no names.
+test('cleanFork keeps fork fields that can be read as they are', () => {
+  assert.deepEqual(
+    cleanFork({ id: 'F', title: 'Which way?', fork: true, choice: 'a1', forkOptions: [{ target: 'a1', label: 'By land', hint: 'Two steps' }] }),
+    { fork: true, choice: 'a1', forkOptions: [{ target: 'a1', label: 'By land', hint: 'Two steps' }] },
+  );
+});
+
+test('cleanFork takes what cannot be read for no fork, no choice and no names', () => {
+  assert.deepEqual(cleanFork({ fork: 'yes', choice: 7, forkOptions: 'none' }), { fork: false, choice: null, forkOptions: [] });
+  assert.deepEqual(cleanFork({}), { fork: false, choice: null, forkOptions: [] });
+  assert.deepEqual(cleanFork(), { fork: false, choice: null, forkOptions: [] });
+});
+
+test('cleanFork drops an option that names no step, and a name that is not text', () => {
+  assert.deepEqual(
+    cleanFork({ fork: true, forkOptions: [null, 'junk', { label: 'No target' }, { target: 7, label: 'x' }, { target: 'a1', label: 5, hint: {} }] }).forkOptions,
+    [{ target: 'a1', label: '', hint: '' }],
+  );
+});
 
 // --- a stored graph: its forks are read level by level, and the arrows are
 // its edges (links.js) - on the server `linkedNodeIds` is almost always empty.
