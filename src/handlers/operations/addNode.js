@@ -29,7 +29,13 @@ export function handleAddNode(graph, payload, nodeIndex = null) {
     linkedNodeIds: payload.linkedNodeIds || {},
     children: payload.children || []
   };
-  
+
+  // A fork (a task whose arrows are alternatives) carries three fields of
+  // its own. Only the ones the payload has: any other node is stored as ever.
+  for (const field of ['fork', 'choice', 'forkOptions']) {
+    if (payload[field] !== undefined) newNode[field] = payload[field];
+  }
+
   // Log linkedNodeIds status
   const linkedIdsCount = Object.keys(newNode.linkedNodeIds).length;
   logger.debug(`Adding node: id=${newNode.id}, title="${newNode.title}", isDone=${newNode.isDone}`);
