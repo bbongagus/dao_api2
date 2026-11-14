@@ -79,7 +79,7 @@ export function shapeTurn({ staged, summary, stoppedEarly = false }) {
 }
 
 export async function runGraphAgent({
-  client, model, nodes, edges = [], currentPath, messages, mode, canMove = false, emit, onToolCall = () => {}, signal,
+  client, model, nodes, edges = [], currentPath, messages, mode, canMove = false, canFork = false, emit, onToolCall = () => {}, signal,
   // What the host needs beside the Messages parameters — OpenRouter's routing.
   extraBody = {},
   // A thinking budget for the loop, or null to leave the model's default.
@@ -93,7 +93,7 @@ export async function runGraphAgent({
 
   const aliases = buildAliasTable(nodes);
   const read = createReadTools(nodes, aliases, edges);
-  const { tools: write, staged, validate } = createWriteTools(nodes, aliases, edges, { canMove });
+  const { tools: write, staged, validate } = createWriteTools(nodes, aliases, edges, { canMove, canFork });
 
   emit({ type: 'status', text: aliases.size === 0 ? 'the graph is empty' : `${aliases.size} nodes in the graph` });
 

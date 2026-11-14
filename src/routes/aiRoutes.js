@@ -236,6 +236,9 @@ export function setupAIRoutes({
         // A tab from before moves would skip one and still apply a delete
         // staged after it, taking the moved nodes with the deleted parent.
         canMove: applies.includes('move'),
+        // A tab from before forks would add one as a plain task, and every
+        // option it offers as work to do.
+        canFork: applies.includes('fork'),
         emit: (event) => { if (job && event.type === 'status') job.status = event.text; if (!aborted) emit(event); },
         onToolCall: (call) => toolCalls.push(call),
       });

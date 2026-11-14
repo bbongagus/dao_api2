@@ -31,11 +31,13 @@ function parentOf(list, id, parent = null) {
 const contains = (node, id) => (node.children || []).some((child) => child.id === id || contains(child, id));
 
 /**
- * @param {{ canMove?: boolean }} [options] - canMove: false when the person's
- *   app predates the move operation. It would skip a move and still apply a
- *   delete staged after it, taking the moved nodes with the deleted parent.
+ * @param {{ canMove?: boolean, canFork?: boolean }} [options] - canMove: false
+ *   when the person's app predates the move operation. It would skip a move
+ *   and still apply a delete staged after it, taking the moved nodes with the
+ *   deleted parent. canFork: false when it predates forks. It would add a
+ *   fork as a plain task, and every option would become work to do.
  */
-export function createWriteTools(nodes, aliases, edges = [], { canMove = true } = {}) {
+export function createWriteTools(nodes, aliases, edges = [], { canMove = true, canFork = true } = {}) {
   const staged = [];
   const minted = new Map(); // alias the model invented → its staged add
   const pendingDeletes = new Set(); // ids of nodes staged for deletion
@@ -371,6 +373,9 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         // themselves; a pair of quotes names no node, so it means none.
         const section = typeof input?.section === 'string' ? input.section.trim().replace(/^(["'`])\1$/, '') : '';
         if (input.layout === 'track' && !canMove) return 'Reload the app to apply a Track restructure without losing existing work.';
+        if (!canFork && Array.isArray(input.forks) && input.forks.length) {
+          return 'This person\'s app is older than forks and cannot apply one yet. Do not lay the alternatives out as stages side by side instead: every one of them would have to be done. Ask which one applies and plan that path, or say that a reload of the page lets the plan hold the choice.';
+        }
         let base;
         try { base = projectDraft(nodes, edges, staged.filter(o => !o.plan), aliases); }
         catch (error) { return `Repair the current draft before planning: ${error.message}`; }

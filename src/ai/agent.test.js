@@ -882,7 +882,7 @@ test('the agent can lay out a plan with a fork, read it back in the draft, and i
     ['plan_path', journey],
     ['inspect_draft', { alias: 'plan:section', depth: 2 }],
     ['mark_done', { target: 'plan:way', done: true }],
-  ], { nodes: [], edges: [] });
+  ], { nodes: [], edges: [], canFork: true });
 
   const result = await turn;
 
@@ -907,11 +907,25 @@ test('the agent can lay out a plan with a fork, read it back in the draft, and i
 });
 
 test('a Track plan with a fork passes the structure check a turn ends with', async () => {
-  const { turn } = runScripted([['plan_path', { ...journey, layout: 'track' }]], { nodes: [], edges: [], canMove: true });
+  const { turn } = runScripted([['plan_path', { ...journey, layout: 'track' }]], { nodes: [], edges: [], canMove: true, canFork: true });
 
   const result = await turn;
 
   assert.equal(result.type, 'changes');
   assert.ok(result.operations.some((o) => o.op === 'link' && o.source === 'plan:section' && o.target === 'plan:way'));
   assert.equal(result.operations.find((o) => o.alias === 'plan:way').parent, 'plan-container');
+});
+
+// An app from before forks would add a fork as a plain task and every option
+// as work to do, so the turn has to be told the app can apply one.
+test('a turn stages a fork only for an app that can apply one', async () => {
+  const old = runScripted([['plan_path', journey]], { nodes: [], edges: [] });
+
+  assert.equal((await old.turn).type, 'text', 'nothing is staged');
+  assert.match(old.results[0], /older than forks/);
+
+  const current = runScripted([['plan_path', journey]], { nodes: [], edges: [], canFork: true });
+
+  assert.equal((await current.turn).type, 'changes');
+  assert.match(current.results[0], /^Staged:/);
 });

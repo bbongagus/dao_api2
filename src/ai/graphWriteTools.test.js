@@ -608,6 +608,22 @@ test('a refused fork stages nothing, and a corrected plan replaces the one stage
   assert.equal(staged.some((o) => o.alias === 'plan:visa'), false);
 });
 
+// An app from before forks drops the fields it does not know: the fork
+// would be added as a plain task, and every option would be work to do.
+test('without a client that can apply a fork, a plan with one is refused, and says what to do instead', () => {
+  const { tools, staged } = createWriteTools(graph, buildAliasTable(graph), [], { canFork: false });
+
+  const said = tools.plan(journey);
+
+  assert.equal(
+    said,
+    'This person\'s app is older than forks and cannot apply one yet. Do not lay the alternatives out as stages side by side instead: every one of them would have to be done. Ask which one applies and plan that path, or say that a reload of the page lets the plan hold the choice.',
+  );
+  assert.equal(staged.length, 0);
+  assert.match(tools.plan(move), /^Staged:/, 'a plan with no fork in it is as welcome as ever');
+  assert.match(tools.plan({ ...move, forks: [] }), /^Staged:/, 'and so is one with an empty list of them');
+});
+
 // --- markDone: the person says they did something, and the task is ticked. ---
 
 const day = [

@@ -131,6 +131,19 @@ test('only an app that says it can apply a move is given one', async (t) => {
   assert.equal(given.canMove, false, 'a tab from before moves would skip one and still apply a delete after it');
 });
 
+test('only an app that says it can apply a fork is given one', async (t) => {
+  let given = null;
+  const { url } = serve(t, {
+    runAgent: async (params) => { given = params; return { type: 'text', message: 'Ок', usage: { calls: 1, dollars: 0.01 } }; },
+  });
+
+  await (await chat(url, { messages: [{ role: 'user', content: 'составь план' }], applies: ['move', 'fork'] })).text();
+  assert.equal(given.canFork, true);
+
+  await (await chat(url, { messages: [{ role: 'user', content: 'составь план' }], applies: ['move'] })).text();
+  assert.equal(given.canFork, false, 'a tab from before forks would add one as a plain task, and every option as work to do');
+});
+
 test('a turn that failed is still charged for the calls it made', async (t) => {
   const { calls, url } = serve(t, {
     runAgent: async () => ({ type: 'error', message: 'rate limited', usage: { calls: 1, dollars: 0.01 } }),
