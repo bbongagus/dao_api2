@@ -4,9 +4,14 @@ import { buildLinkIndex } from './links.js';
 /** Reuse the stage compiler's DAG/layout; place its nodes beside one Track.
  * Existing references become moves/updates, never delete-and-recreate.
  * Pure and atomic: a refusal returns no operations.
+ *
+ * A fork (planCompiler.js) is always a new node here. One that already exists
+ * is never rebuilt into a path: as a plain step it would keep its mark, and
+ * the arrows the plan gives it would read as alternatives.
  */
 export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileStages) {
   const fail = (error) => ({ error });
+  const existingFork = (ref) => `${ref} is a fork, and plan_path cannot rebuild a path around an existing fork yet. Leave that part as it is, or change it with move_node, link_nodes and add_node.`;
   const group = n => n?.nodeType === 'fundamental' && n.nodeSubtype === 'category';
   const track = n => n?.nodeType === 'fundamental' && n.nodeSubtype === 'downstream';
   const anchor = plan.section ? aliases.nodeAt(plan.section) : null;
@@ -27,6 +32,7 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
     const n = aliases.nodeAt(ref);
     if (!n || n.id === anchor?.id) { problem = `Unknown or invalid existing reference ${ref}.`; return; }
     if (selected.has(n.id)) { problem = `${ref} is used twice. Reuse every existing node only once.`; return; }
+    if (n.fork === true) { problem = existingFork(ref); return; }
     if (kind === 'milestone' ? !(n.nodeType === 'fundamental' && n.nodeSubtype === 'upstream') : n.nodeType !== 'dao') {
       problem = `${ref} must be an existing ${kind}.`; return;
     }
@@ -75,6 +81,7 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
   const wrappers = [];
   for (const [id, n] of scope) {
     if (selected.has(id)) continue;
+    if (n.fork === true) return fail(existingFork(aliases.aliasOf(id)));
     if (!group(n) || n.isDone || links.upstreamOf(id).length || links.downstreamOf(id).length) {
       return fail(`Existing work ${aliases.aliasOf(id)} "${n.title}" is missing from the plan. Include it using existing; do not recreate or discard it.`);
     }
@@ -94,8 +101,13 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
     stages: stages.map(stage => ({ ...stage, existing: '', steps: stage.steps.map(step => ({ ...step, existing: '' })) })),
   }, { nodes, aliases });
   if (compiled.error) return compiled;
-  const terminal = stages.filter(s => !stages.some(other => (other.after || []).includes(s.id)));
-  if (terminal.length !== 1) return fail('A Track needs one final outcome. Connect the stage outcomes, or use sequence: true for the requested stage-by-stage path.');
+  // A stage a fork waits for leads on through that fork: it is not an end.
+  const forks = plan.forks || [];
+  const terminal = stages.filter(s => !stages.some(other => (other.after || []).includes(s.id))
+    && !forks.some(fork => (fork.after || []).includes(s.id)));
+  if (terminal.length !== 1) return fail(forks.length
+    ? 'A Track needs one final outcome. The paths of a fork have to meet again: give the plan a last stage whose after lists the last stage of every option.'
+    : 'A Track needs one final outcome. Connect the stage outcomes, or use sequence: true for the requested stage-by-stage path.');
 
   const ref = id => map.get(id) || id;
   const operations = [];
@@ -132,7 +144,9 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
         else operations.push(update);
       }
     } else operations.push({ ...op, alias: ref(op.alias), parent: destination,
-      ...(isAnchor ? KIND_TO_TYPES.kai : {}), x: isAnchor ? 0 : op.x + 380 });
+      ...(isAnchor ? KIND_TO_TYPES.kai : {}), x: isAnchor ? 0 : op.x + 380,
+      // An option that starts with an existing task names it by its id.
+      ...(op.forkOptions ? { forkOptions: op.forkOptions.map(option => ({ ...option, target: ref(option.target) })) } : {}) });
   }
   // Only empty, unconnected organizational wrappers are deleted, bottom-up.
   wrappers.reverse().forEach(n => operations.push({ op: 'delete', target: n.id }));
