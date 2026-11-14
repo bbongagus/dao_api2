@@ -54,6 +54,15 @@ must not point to another unrelated Kai. Stages inside this path are expected
 and contribute to the Track's progress. The person's explicit order of stages
 is a prerequisite even if they could choose a different schedule.
 
+## Forks
+
+A fork is a task whose arrows are alternatives: the person takes exactly one
+of them, in the app, and taking it is what makes the fork done. Until then
+none of its paths is counted. Afterwards the paths not taken are out of the
+plan - not counted, not shown - and where the paths meet again counts as
+usual. Stages side by side are the opposite: every one of them has to be
+done.
+
 ## Descriptions
 
 Every node carries a description as well as a title. The title is what the

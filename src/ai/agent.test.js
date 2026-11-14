@@ -791,3 +791,127 @@ test('a later tool edit cannot offer a broken Track for Apply', async () => {
   assert.equal(result.reason, 'invalid_plan');
   assert.equal(result.operations, undefined);
 });
+
+// --- forks: plan_path can state alternatives, of which the person takes one ---
+
+/** The tools exactly as a turn hands them to the model. */
+async function toolsOfATurn() {
+  let tools;
+  const client = {
+    beta: {
+      messages: {
+        toolRunner(params) {
+          tools = params.tools;
+          return runnerOf([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} }]);
+        },
+      },
+    },
+  };
+  await runGraphAgent({
+    client, model: 'claude-sonnet-5', nodes: [], edges: [], currentPath: [],
+    messages: [{ role: 'user', content: 'привет' }], emit: noEmit,
+  });
+  return tools;
+}
+
+// The schema is written by zod, which moves a described or optional part to
+// $defs and points at it; follow the pointer to read the part itself.
+const resolved = (schema, part) => (part.$ref ? schema.$defs[part.$ref.split('/').pop()] : part);
+
+const planStep = (id, title, after = []) => ({ id, title, description: '', after, checklistCount: 0, checklist: [] });
+// [Как едем?] ─ автобус ─┬─ На месте
+//             └ самолёт ─┘
+const journey = {
+  layout: 'group', sequence: false, section: '', sectionTitle: 'Поездка', sectionDescription: '',
+  stages: [
+    { id: 'bus', title: 'Доехали автобусом', description: '', after: [], steps: [planStep('ticket', 'Купить билет на автобус')] },
+    { id: 'fly', title: 'Долетели', description: '', after: [], steps: [planStep('flight', 'Купить билет на самолёт')] },
+    { id: 'there', title: 'На месте', description: '', after: ['bus', 'fly'], steps: [planStep('checkin', 'Заселиться')] },
+  ],
+  forks: [{
+    id: 'way', title: 'Как едем?', description: 'От этого зависит, какой билет покупать.', after: [],
+    options: [{ stage: 'bus', label: 'Автобусом', hint: 'Дешевле' }, { stage: 'fly', label: 'Самолётом', hint: 'Быстрее' }],
+  }],
+};
+
+test('plan_path takes an optional list of forks: a question, what comes before it, and its options', async () => {
+  const plan = (await toolsOfATurn()).find((t) => t.name === 'plan_path');
+  const { properties, required } = plan.input_schema;
+
+  assert.deepEqual(Object.keys(properties), ['layout', 'sequence', 'section', 'sectionTitle', 'sectionDescription', 'stages', 'forks']);
+  assert.equal(required.includes('forks'), false, 'a plan with no choice in it says nothing about forks');
+
+  const forks = resolved(plan.input_schema, properties.forks);
+  assert.equal(forks.type, 'array');
+  assert.deepEqual(Object.keys(forks.items.properties), ['id', 'title', 'description', 'after', 'options']);
+  assert.deepEqual(forks.items.required, ['id', 'title', 'description', 'after', 'options']);
+
+  const option = resolved(plan.input_schema, forks.items.properties.options.items);
+  assert.deepEqual(Object.keys(option.properties), ['stage', 'label', 'hint']);
+  assert.deepEqual(option.required, ['stage', 'label', 'hint']);
+});
+
+test('plan_path accepts a plan with forks and a plan without, and hands the forks on untouched', async () => {
+  const plan = (await toolsOfATurn()).find((t) => t.name === 'plan_path');
+  const { forks, ...plain } = journey;
+
+  assert.deepEqual(plan.parse(journey).forks, forks);
+  assert.equal(plan.parse(plain).forks, undefined);
+  assert.throws(() => plan.parse({ ...journey, forks: [{ id: 'way' }] }), 'a fork without its options is not a fork');
+});
+
+test('the model is told when alternatives are a fork, and that stages side by side are not', async () => {
+  const plan = (await toolsOfATurn()).find((t) => t.name === 'plan_path');
+  const said = plan.input_schema.properties.forks.description;
+  const fork = resolved(plan.input_schema, plan.input_schema.properties.forks).items;
+  const option = resolved(plan.input_schema, fork.properties.options.items);
+
+  assert.match(plan.description, /Alternatives of which exactly one applies go in forks, not in stages side by side/);
+  assert.match(said, /"one of these grounds"/);
+  assert.match(said, /"if you already have X you skip Y"/);
+  assert.match(said, /Not for stages that run side by side: those must all be done/);
+  assert.match(said, /Needs sequence: false/);
+  assert.match(said, /Omit when the person has already said which one applies/);
+  assert.match(fork.properties.id.description, /unique among forks and stages/);
+  assert.match(fork.properties.after.description, /\[\] when the plan starts with it/);
+  assert.match(option.properties.stage.description, /An option with nothing to do names the stage where the paths meet/);
+});
+
+test('the agent can lay out a plan with a fork, read it back in the draft, and is told a fork is not ticked', async () => {
+  const { turn, results } = runScripted([
+    ['plan_path', journey],
+    ['inspect_draft', { alias: 'plan:section', depth: 2 }],
+    ['mark_done', { target: 'plan:way', done: true }],
+  ], { nodes: [], edges: [] });
+
+  const result = await turn;
+
+  assert.equal(result.type, 'changes');
+  assert.deepEqual(result.operations.find((o) => o.alias === 'plan:way'), {
+    op: 'add', alias: 'plan:way', parent: 'plan:section', title: 'Как едем?',
+    description: 'От этого зависит, какой билет покупать.',
+    nodeType: 'dao', nodeSubtype: 'simple', x: 0, y: 0, downstream: [],
+    fork: true,
+    forkOptions: [
+      { target: 'plan:bus:ticket', label: 'Автобусом', hint: 'Дешевле' },
+      { target: 'plan:fly:flight', label: 'Самолётом', hint: 'Быстрее' },
+    ],
+    plan: true,
+  });
+  assert.equal(result.operations.some((o) => o.op === 'done'), false);
+  assert.match(results[0], /Forks, where the person chooses one path in the app: plan:way "Как едем\?" \(2 options\)\./);
+  assert.ok(results[1].split('\n').includes(
+    '  plan:way [dao] Как едем? · plan:way → plan:bus:ticket, plan:fly:flight · fork, one of: "Автобусом" → plan:bus:ticket; "Самолётом" → plan:fly:flight · not chosen yet · "От этого зависит, какой билет покупать."',
+  ), results[1]);
+  assert.match(results[2], /is a fork: it is done by choosing one of its paths, in the app/);
+});
+
+test('a Track plan with a fork passes the structure check a turn ends with', async () => {
+  const { turn } = runScripted([['plan_path', { ...journey, layout: 'track' }]], { nodes: [], edges: [], canMove: true });
+
+  const result = await turn;
+
+  assert.equal(result.type, 'changes');
+  assert.ok(result.operations.some((o) => o.op === 'link' && o.source === 'plan:section' && o.target === 'plan:way'));
+  assert.equal(result.operations.find((o) => o.alias === 'plan:way').parent, 'plan-container');
+});

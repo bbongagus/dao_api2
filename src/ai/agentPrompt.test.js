@@ -229,3 +229,24 @@ test('the prompt sends "I did it" to the task list, matched by meaning, and to m
   assert.match(AGENT_SYSTEM_PROMPT, /by meaning/);
   assert.match(AGENT_SYSTEM_PROMPT, /`mark_done`/);
 });
+
+// A fork: alternatives of which the person takes exactly one. Laid out as
+// stages side by side, every one of them would have to be done.
+test('the semantics teach a fork: one path taken, the others out of the plan, nothing counted before the choice', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /## Forks/);
+  assert.match(AGENT_SYSTEM_PROMPT, /A\s+fork\s+is\s+a\s+task\s+whose\s+arrows\s+are\s+alternatives/);
+  assert.match(AGENT_SYSTEM_PROMPT, /takes\s+exactly\s+one/);
+  assert.match(AGENT_SYSTEM_PROMPT, /paths\s+not\s+taken\s+are\s+out\s+of\s+the\s+plan/);
+  assert.match(AGENT_SYSTEM_PROMPT, /none\s+of\s+its\s+paths\s+is\s+counted/);
+});
+
+test('a plan states alternatives as a fork, not as stages side by side, and plans one path when the choice is known', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /"one\s+of\s+these\s+grounds"/);
+  assert.match(AGENT_SYSTEM_PROMPT, /"if\s+you\s+already\s+have\s+X\s+you\s+skip\s+Y"/);
+  assert.match(AGENT_SYSTEM_PROMPT, /are\s+a\s+fork\s+in\s+`plan_path`/);
+  assert.match(AGENT_SYSTEM_PROMPT, /plan\s+that\s+path\s+alone/);
+});
+
+test('a fork is chosen at by the person, never ticked by the agent', () => {
+  assert.match(AGENT_SYSTEM_PROMPT, /A\s+fork\s+is\s+done\s+by\s+the\s+person\s+choosing\s+one\s+of\s+its\s+paths\s+in\s+the\s+app;\s+`mark_done`\s+refuses\s+it/);
+});

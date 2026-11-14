@@ -72,6 +72,11 @@ descriptions; do not turn the months into a chain unless that order was requeste
 \`plan_path\`, go through every \`after\` and ask: could this stage start
 without that one? If it could and no ordering was requested, drop it.
 
+Alternatives of which exactly one applies - "one of these grounds", "if you
+already have X you skip Y" - are a fork in \`plan_path\`, not stages side by
+side: those must all be done. When the person has already said which one
+applies, plan that path alone.
+
 The last stage is the goal itself, reached - "Квартира куплена", "Диплом
 защищён" - not the activity that leads to it.
 
@@ -238,6 +243,8 @@ If a tool refuses, it will say why. Take the reason seriously:
   link is a link.
 - A task with items inside is ticked through its items, and a ryu, kai or
   mi through its tasks; \`mark_done\` names them.
+- A fork is done by the person choosing one of its paths in the app;
+  \`mark_done\` refuses it.
 - A plan that \`plan_path\` refuses says why: missing existing work, a wrong
   checklist count, a circle, or a stage with no steps. Fix that part and call it again.
 

@@ -310,7 +310,7 @@ export async function runGraphAgent({
     }),
     betaZodTool({
       name: 'plan_path',
-      description: 'Build a connected path from a Track through tasks and Milestones on one level, with real checklists. Reuse existing task/milestone aliases to preserve completed work. Keep one enclosing Group, with the Track, tasks and Milestones together inside it. Remove only nested stage Groups. Nothing changes until confirmed.',
+      description: 'Build a connected path from a Track through tasks and Milestones on one level, with real checklists. Reuse existing task/milestone aliases to preserve completed work. Keep one enclosing Group, with the Track, tasks and Milestones together inside it. Remove only nested stage Groups. Alternatives of which exactly one applies go in forks, not in stages side by side, which must all be done. Nothing changes until confirmed.',
       inputSchema: z.object({
         layout: z.enum(['track', 'group']).describe('Use track for a connected goal/path. group is only for explicitly requested containment.'),
         sequence: z.boolean().describe('true when stages must follow one another in the given order; false to use stage after dependencies'),
@@ -333,6 +333,17 @@ export async function runGraphAgent({
             checklist: z.array(z.union([z.string(), z.object({ title: z.string(), existing: z.string() })])).describe('Each item is a title, or {title, existing} to keep an already completed item. Seven comments require seven items, not a single task title.'),
           })),
         })),
+        forks: z.array(z.object({
+          id: z.string().describe('Short id, unique among forks and stages'),
+          title: z.string().describe('The question the person answers by choosing, e.g. "Что у вас есть, кроме загранпаспорта?"'),
+          description: z.string(),
+          after: z.array(z.string()).describe('ids of the stages that must be complete before the choice; [] when the plan starts with it'),
+          options: z.array(z.object({
+            stage: z.string().describe('id of the stage this option starts with. An option with nothing to do names the stage where the paths meet'),
+            label: z.string().describe('The option in a few words, e.g. "Есть вид на жительство"'),
+            hint: z.string().describe('What taking it involves, in a few words, or ""'),
+          })).describe('Two or more alternatives; the person takes exactly one. Each starts with a stage of its own, and that stage has a single first step'),
+        })).optional().describe('Choices between alternatives of which exactly one applies: "one of these grounds", "if you already have X you skip Y". Not for stages that run side by side: those must all be done. The stage where the paths meet lists the last stage of every option in its after. Needs sequence: false. Omit when the person has already said which one applies, and plan that path only.'),
       }),
       run: reportedWrite(
         'plan_path',
