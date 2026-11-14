@@ -11,6 +11,7 @@
 
 import { KIND_TO_TYPES, KIND_LIST, kindNameOf } from './graphReadTools.js';
 import { buildLinkIndex } from './links.js';
+import { isFork } from './forks.js';
 import { compilePlan } from './planCompiler.js';
 import { projectDraft } from './graphDraft.js';
 import { validateTrackDraft } from './trackPlanCompiler.js';
@@ -298,6 +299,12 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         };
         if (kindNameOf(node) !== 'dao') {
           return `"${node.title}" is a ${kindNameOf(node)}: its progress comes from the tasks it counts, not from a tick of its own. Mark those tasks instead.`;
+        }
+
+        // A fork's tick is its choice: the app sets both together, and a
+        // tick without a choice would count a decision nobody made.
+        if (isFork(node)) {
+          return `"${node.title}" is a fork: it is done by choosing one of its paths, in the app, and a tick cannot be put on it or taken off it here.`;
         }
 
         // A checklist card, or a folder, reads its progress from what is

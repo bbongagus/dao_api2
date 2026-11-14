@@ -638,6 +638,40 @@ test('imported milestones and checklists must take their progress from their tas
   assert.equal(staged.filter((op) => op.op === 'done').length, 1);
 });
 
+// A fork is a task whose arrows are alternatives; choosing one is what does it.
+const crossing = (fork = {}) => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: null, ...fork }),
+    n('bus', 'Автобус'),
+    n('fly', 'Самолёт'),
+  ];
+  return createWriteTools(nodes, buildAliasTable(nodes), [
+    { source: 'way', target: 'bus' }, { source: 'way', target: 'fly' },
+  ]);
+};
+const FORK_REFUSAL = '"Как едем?" is a fork: it is done by choosing one of its paths, in the app, and a tick cannot be put on it or taken off it here.';
+
+test('markDone refuses a fork: it is done by choosing one of its paths, in the app', () => {
+  const { tools, staged } = crossing();
+
+  assert.equal(tools.markDone({ target: 'n1', done: true }), FORK_REFUSAL);
+  assert.equal(staged.length, 0);
+});
+
+test('markDone does not take the tick off a chosen fork either', () => {
+  const { tools, staged } = crossing({ choice: 'bus', isDone: true });
+
+  assert.equal(tools.markDone({ target: 'n1', done: false }), FORK_REFUSAL);
+  assert.equal(staged.length, 0);
+});
+
+test('the steps a fork leads to are ticked like any other task', () => {
+  const { tools, staged } = crossing();
+
+  assert.match(tools.markDone({ target: 'n2', done: true }), /^Staged:/);
+  assert.deepEqual(staged, [{ op: 'done', target: 'bus', isDone: true }]);
+});
+
 test('markDone asks for a yes or no rather than guessing one', () => {
   const { tools, staged } = onDay();
 
