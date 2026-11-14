@@ -256,6 +256,27 @@ test('a Track plan without forks keeps the old sentence about its final outcome'
   );
 });
 
+// The tool's schema lets only lists through, but the compiler is also called
+// directly: what is not a list is read as nothing, as the stage compiler does.
+test('a forks field, or a fork\'s after, that is not a list is read as empty in a Track, never thrown on', () => {
+  const plain = residence();
+  plain.forks = 'none';
+  plain.stages[1].after = ['prep'];
+  plain.stages[2].after = ['prep'];
+  const without = compilePlan(plain, empty());
+
+  assert.equal(without.error, undefined);
+  assert.equal(without.stats.forks, 0);
+
+  const loose = residence();
+  loose.stages.shift();
+  loose.forks[0].after = 'apply';
+  const first = compilePlan(loose, empty());
+
+  assert.equal(first.error, undefined);
+  assert.deepEqual(first.startNow, ['Что у вас есть, кроме загранпаспорта?']);
+});
+
 test('sequence: true with a fork is refused in a Track too', () => {
   const error = compilePlan({ ...residence(), sequence: true }, empty()).error;
 

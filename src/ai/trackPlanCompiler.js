@@ -102,9 +102,9 @@ export function compileTrackPlan(plan, { nodes, aliases, edges = [] }, compileSt
   }, { nodes, aliases });
   if (compiled.error) return compiled;
   // A stage a fork waits for leads on through that fork: it is not an end.
-  const forks = plan.forks || [];
+  const forks = Array.isArray(plan.forks) ? plan.forks : [];
   const terminal = stages.filter(s => !stages.some(other => (other.after || []).includes(s.id))
-    && !forks.some(fork => (fork.after || []).includes(s.id)));
+    && !forks.some(fork => Array.isArray(fork.after) && fork.after.includes(s.id)));
   if (terminal.length !== 1) return fail(forks.length
     ? 'A Track needs one final outcome. The paths of a fork have to meet again: give the plan a last stage whose after lists the last stage of every option.'
     : 'A Track needs one final outcome. Connect the stage outcomes, or use sequence: true for the requested stage-by-stage path.');
