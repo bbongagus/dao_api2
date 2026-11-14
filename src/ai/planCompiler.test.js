@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildAliasTable } from './aliases.js';
+import { readForks } from './forks.js';
+import { projectDraft } from './graphDraft.js';
+import { buildLinkIndex } from './links.js';
 import { compilePlan, COLUMN, ROW } from './planCompiler.js';
 
 const step = (id, title, extra = {}) => ({ id, title, description: '', after: [], checklist: [], repeat: 0, ...extra });
@@ -455,6 +458,25 @@ test('each Milestone after a fork, walking left, counts its own steps and the ch
   assert.deepEqual(walk('plan:kin'), ['plan:basis', 'plan:kin:birth', 'plan:kin:proof']);
   assert.deepEqual(walk('plan:marriage'), ['plan:basis', 'plan:marriage:cert']);
   assert.deepEqual(walk('plan:apply'), ['plan:apply:form', 'plan:apply:submit', 'plan:basis']);
+});
+
+// The compiled plan, read by the rule the app reads it by (forks.js): each
+// choice leaves the other paths out, and never the stage where they meet.
+test('what a choice at a compiled fork folds away: the other paths, with their Milestones', () => {
+  const draft = projectDraft([], [], compile(residence).operations, buildAliasTable([]));
+  const fork = draft.aliases.nodeAt('plan:basis');
+  const out = (choice) => {
+    fork.choice = choice;
+    const { folded, pending } = readForks(draft.nodes, buildLinkIndex(draft.nodes, draft.edges));
+    return { folded: [...folded].sort(), pending: [...pending].sort() };
+  };
+  const kin = ['plan:kin', 'plan:kin:birth', 'plan:kin:proof'];
+  const marriage = ['plan:marriage', 'plan:marriage:cert'];
+
+  assert.deepEqual(out(null), { folded: [], pending: [...kin, ...marriage] });
+  assert.deepEqual(out('plan:kin:birth'), { folded: marriage, pending: [] });
+  assert.deepEqual(out('plan:marriage:cert'), { folded: kin, pending: [] });
+  assert.deepEqual(out('plan:apply:form'), { folded: [...kin, ...marriage], pending: [] });
 });
 
 test('two forks in a row: the second waits for the stage where the first one\'s options met', () => {
