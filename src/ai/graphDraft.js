@@ -39,7 +39,9 @@ export function projectDraft(nodes, edges, staged, originalAliases) {
   for (const op of staged.filter((op) => op.op === 'add')) {
     if (index.has(op.alias)) throw new Error('A draft alias is already taken.');
     index.set(op.alias, { id: op.alias, title: op.title, description: op.description || '',
-      nodeType: op.nodeType, nodeSubtype: op.nodeSubtype, isDone: false, children: [], linkedNodeIds: {} });
+      nodeType: op.nodeType, nodeSubtype: op.nodeSubtype, isDone: false, children: [], linkedNodeIds: {},
+      // A fork is proposed undecided: the person chooses once it exists.
+      ...(op.fork === true ? { fork: true, choice: null, forkOptions: structuredClone(op.forkOptions || []) } : {}) });
     parents.set(op.alias, op.parent || null);
   }
   const checkParent = (id, parent) => {

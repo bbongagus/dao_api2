@@ -46,6 +46,31 @@ test('draft supports additions with forward parents, ticks, links and leaf delet
   assert.ok(draft.edges.some(e => e.source === 'write' && e.target === 'item'));
 });
 
+test('a fork staged as an addition is a fork in the draft, with no choice made', () => {
+  const options = [{ target: 'topic', label: 'Start from a topic', hint: '' }, { target: 'write', label: '', hint: '' }];
+  const staged = [
+    { op: 'add', alias: 'way', parent: 'area', title: 'Which way?', nodeType: 'dao', nodeSubtype: 'simple', fork: true, forkOptions: options },
+    { op: 'link', source: 'way', target: 'topic' }, { op: 'link', source: 'way', target: 'write' },
+  ];
+  const fork = projectDraft(nodes, [], staged, buildAliasTable(nodes)).aliases.nodeAt('way');
+  assert.equal(fork.fork, true);
+  assert.equal(fork.choice, null);
+  assert.deepEqual(fork.forkOptions, [
+    { target: 'topic', label: 'Start from a topic', hint: '' }, { target: 'write', label: '', hint: '' },
+  ]);
+  assert.notEqual(fork.forkOptions, options, 'the draft holds its own copy, not the staged operation\'s');
+});
+
+test('an ordinary addition gets no fork fields in the draft', () => {
+  const draft = projectDraft(nodes, [], [
+    { op: 'add', alias: 'item', parent: 'area', title: 'Item', nodeType: 'dao', nodeSubtype: 'simple' },
+  ], buildAliasTable(nodes));
+  assert.deepEqual(draft.aliases.nodeAt('item'), {
+    id: 'item', title: 'Item', description: '', nodeType: 'dao', nodeSubtype: 'simple',
+    isDone: false, children: [], linkedNodeIds: {},
+  });
+});
+
 test('invalid drafts report structural mistakes instead of inventing a view', () => {
   for (const ops of [
     [{ op: 'move', target: 'area', parent: 'topic' }],
