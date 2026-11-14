@@ -306,3 +306,150 @@ test('tasks never shows a uuid', () => {
   assert.equal(out.includes('run'), false);
   assert.equal(out.includes('offer'), false);
 });
+
+// --- forks: a task whose arrows are alternatives. The person takes one, in
+// the app; what only the others lead to is out of the plan. ---
+
+// Inside the Group "Поездка":
+//   Подготовка ─ Как едем? ─ Забронировать автобус ─ Собрать сумку ─┬─ Пересечь границу
+//                         └ Купить билет на самолёт ────────────────┘
+const trip = (fork = {}) => [n('trip', 'Поездка', {
+  nodeType: 'fundamental', nodeSubtype: 'category',
+  children: [
+    n('pre', 'Подготовка', { isDone: true }),
+    n('way', 'Как едем?', {
+      fork: true, choice: null, forkOptions: [{ target: 'bus', label: 'По земле', hint: 'Два шага' }], ...fork,
+    }),
+    n('bus', 'Забронировать автобус'),
+    n('bag', 'Собрать сумку'),
+    n('fly', 'Купить билет на самолёт'),
+    n('border', 'Пересечь границу'),
+  ],
+})];
+const tripEdges = [
+  { source: 'pre', target: 'way' },
+  { source: 'way', target: 'bus' }, { source: 'bus', target: 'bag' }, { source: 'bag', target: 'border' },
+  { source: 'way', target: 'fly' }, { source: 'fly', target: 'border' },
+];
+const readTrip = (fork) => { const nodes = trip(fork); return createReadTools(nodes, buildAliasTable(nodes), tripEdges); };
+const nestedLineOf = (out, alias) => out.split('\n').find((l) => l.trimStart().startsWith(`${alias} `));
+
+test('inspect shows a fork with each option by label and alias, and that none is chosen', () => {
+  const out = readTrip().inspect({ alias: 'n1', depth: 2 });
+
+  // The first option is named by the fork; the second by the step it leads to.
+  assert.equal(
+    nestedLineOf(out, 'n3'),
+    '  n3 [dao] Как едем? · n3 → n4, n6 · n2 → n3 · fork, one of: "По земле" → n4; "Купить билет на самолёт" → n6 · not chosen yet',
+  );
+});
+
+test('inspect shows which option of a fork is taken', () => {
+  const out = readTrip({ choice: 'fly', isDone: true }).inspect({ alias: 'n1', depth: 2 });
+
+  assert.equal(
+    nestedLineOf(out, 'n3'),
+    '  n3 [dao] Как едем? · n3 → n4, n6 · n2 → n3 · fork, one of: "По земле" → n4; "Купить билет на самолёт" → n6 · chosen: "Купить билет на самолёт" → n6 · done',
+  );
+});
+
+test('a choice that is no longer one of the fork\'s arrows reads as none', () => {
+  const out = readTrip({ choice: 'gone' }).inspect({ alias: 'n3', depth: 1 });
+
+  assert.match(out, /not chosen yet$/);
+});
+
+test('overview and search show a fork the same way', () => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: 'bus', isDone: true }),
+    n('bus', 'Автобус'), n('fly', 'Самолёт'),
+  ];
+  const edges = [{ source: 'way', target: 'bus' }, { source: 'way', target: 'fly' }];
+  const read = createReadTools(nodes, buildAliasTable(nodes), edges);
+  const line = 'n1 [dao] Как едем? · n1 → n2, n3 · fork, one of: "Автобус" → n2; "Самолёт" → n3 · chosen: "Автобус" → n2 · done';
+
+  assert.equal(lineOf(read.overview(), 'n1'), line);
+  assert.equal(read.search({ text: 'едем' }), line);
+});
+
+test('a fork with no arrows yet says so instead of listing options', () => {
+  const nodes = [n('way', 'Как едем?', { fork: true, choice: null, forkOptions: [] })];
+  const out = createReadTools(nodes, buildAliasTable(nodes)).overview();
+
+  assert.equal(lineOf(out, 'n1'), 'n1 [dao] Как едем? · fork with no options yet');
+});
+
+test('the steps around a fork read exactly as any other task', () => {
+  const out = readTrip().inspect({ alias: 'n1', depth: 2 });
+
+  assert.equal(nestedLineOf(out, 'n4'), '  n4 [dao] Забронировать автобус · n4 → n5 · n3 → n4');
+  assert.equal(nestedLineOf(out, 'n7'), '  n7 [dao] Пересечь границу · n5, n6 → n7');
+});
+
+test('tasks leaves out the path a fork did not take', () => {
+  const out = readTrip({ choice: 'fly', isDone: true }).tasks({ done: false });
+
+  assert.equal(out, [
+    '2 task(s) still to do. Match what the person said by meaning, not by the words.',
+    'n6 Купить билет на самолёт — in Поездка',
+    'n7 Пересечь границу — in Поездка',
+  ].join('\n'));
+});
+
+test('tasks keeps every path of a fork nobody has chosen at, and the fork itself', () => {
+  const out = readTrip().tasks({ done: false });
+
+  assert.equal(out, [
+    '5 task(s) still to do. Match what the person said by meaning, not by the words.',
+    'n3 Как едем? — in Поездка',
+    'n4 Забронировать автобус — in Поездка',
+    'n5 Собрать сумку — in Поездка',
+    'n6 Купить билет на самолёт — in Поездка',
+    'n7 Пересечь границу — in Поездка',
+  ].join('\n'));
+});
+
+test('tasks leaves out the items of a checklist on a path not taken', () => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: 'fly', isDone: true }),
+    n('bag', 'Собрать сумку', { nodeSubtype: 'withChildren', children: [n('socks', 'Носки'), n('charger', 'Зарядка')] }),
+    n('fly', 'Купить билет'),
+  ];
+  const edges = [{ source: 'way', target: 'bag' }, { source: 'way', target: 'fly' }];
+  const out = createReadTools(nodes, buildAliasTable(nodes), edges).tasks({ done: false });
+
+  assert.equal(out, [
+    '1 task(s) still to do. Match what the person said by meaning, not by the words.',
+    'n5 Купить билет',
+  ].join('\n'));
+});
+
+test('a tick on a path not taken is not listed among the done either', () => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: 'fly', isDone: true, doneAt: '2026-11-10T10:00:00.000Z' }),
+    n('bus', 'Автобус', { isDone: true, doneAt: '2026-11-11T10:00:00.000Z' }),
+    n('fly', 'Самолёт', { isDone: true, doneAt: '2026-11-12T10:00:00.000Z' }),
+  ];
+  const edges = [{ source: 'way', target: 'bus' }, { source: 'way', target: 'fly' }];
+  const out = createReadTools(nodes, buildAliasTable(nodes), edges).tasks({ done: true });
+
+  assert.equal(out, [
+    '2 task(s) done. Match what the person said by meaning, not by the words.',
+    'n3 Самолёт',
+    'n1 Как едем?',
+  ].join('\n'));
+});
+
+test('when only a path not taken is left open, nothing is still to do', () => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: 'fly', isDone: true }),
+    n('bus', 'Автобус'),
+    n('fly', 'Самолёт', { isDone: true }),
+  ];
+  const edges = [{ source: 'way', target: 'bus' }, { source: 'way', target: 'fly' }];
+
+  assert.equal(
+    createReadTools(nodes, buildAliasTable(nodes), edges).tasks({ done: false }),
+    'Every task is done; none is still to do.',
+  );
+});

@@ -14,6 +14,7 @@
  */
 
 import { buildLinkIndex } from './links.js';
+import { forkSetsOf, isFork } from './forks.js';
 
 const SHORT_DESCRIPTION = 120;
 const TASKS_CAP = 300;
@@ -70,6 +71,21 @@ export function createReadTools(nodes, aliases, edges = []) {
       .map((id) => aliases.aliasOf(id))
       .filter(Boolean);
     if (upstreamLinks.length) parts.push(`${upstreamLinks.join(', ')} → ${alias}`);
+
+    // A fork's arrows are alternatives: what each is called, where it leads,
+    // and which one the person took. An option the fork does not name is
+    // named by the step it leads to.
+    if (isFork(node)) {
+      const options = links.downstreamOf(node.id).filter((id) => aliases.aliasOf(id));
+      const labels = new Map((Array.isArray(node.forkOptions) ? node.forkOptions : []).map((o) => [o?.target, o?.label]));
+      const option = (id) => `"${labels.get(id) || aliases.nodeAt(aliases.aliasOf(id)).title}" → ${aliases.aliasOf(id)}`;
+      if (options.length === 0) {
+        parts.push('fork with no options yet');
+      } else {
+        parts.push(`fork, one of: ${options.map(option).join('; ')}`);
+        parts.push(options.includes(node.choice) ? `chosen: ${option(node.choice)}` : 'not chosen yet');
+      }
+    }
 
     if (node.isDone) parts.push('done');
 
@@ -170,11 +186,23 @@ export function createReadTools(nodes, aliases, edges = []) {
     tasks({ done = false } = {}) {
       const wanted = done === true;
 
+      // What a fork has folded - the paths not taken, with whatever is nested
+      // in their steps - is out of the plan, so it is not offered. A path
+      // nobody has chosen yet stays: it may turn out to be the work.
+      const { folded } = forkSetsOf(nodes, links);
+      const foldedAway = (entry) => {
+        for (let e = entry; e; e = e.parentAlias ? aliases.entryAt(e.parentAlias) : null) {
+          if (folded.has(e.node.id)) return true;
+        }
+        return false;
+      };
+
       // What can be ticked: a task with nothing inside. A checklist card's
       // progress is its items', so the items stand in for it, naming it as
       // their place.
-      const hits = aliases.all.filter(({ node }) =>
-        kindNameOf(node) === 'dao' && !node.children?.length && Boolean(node.isDone) === wanted
+      const hits = aliases.all.filter((entry) =>
+        kindNameOf(entry.node) === 'dao' && !entry.node.children?.length
+        && Boolean(entry.node.isDone) === wanted && !foldedAway(entry)
       );
       if (hits.length === 0) {
         return wanted ? 'No task is marked done.' : 'Every task is done; none is still to do.';
