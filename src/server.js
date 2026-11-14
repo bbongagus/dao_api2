@@ -39,6 +39,7 @@ import { setupGraphRoutes } from './routes/graphRoutes.js';
 import { createChatJobStore } from './ai/chatJobStore.js';
 import { setupAIRoutes } from './routes/aiRoutes.js';
 import { setupOnboardingRoutes } from './routes/onboardingRoutes.js';
+import { setupSharedRoutes, setupSharedReadRoutes } from './routes/sharedRoutes.js';
 
 // Import logger
 import { logger } from './utils/logger.js';
@@ -199,6 +200,12 @@ app.use('/api', setupGraphRoutes({ getGraph, saveGraph, clients, graphQueue }));
 app.use('/api/ai', setupAIRoutes({ getGraph, journal, ledger, jobs: createChatJobStore(redis) }));
 setupSpeechSocket({ wss: speechWss, verifyToken, ledger });
 app.use('/api', setupOnboardingRoutes({ redis }));
+// A published plan (sharedRoutes.js) is read by anyone who has its link:
+// outside /api, so no token is asked for. Publishing reads the stored graph
+// as it is — readGraph, not getGraph, whose NodeIndex belongs to the
+// operation queue.
+app.use('/shared', setupSharedReadRoutes({ redis }));
+app.use('/api', setupSharedRoutes({ redis, getGraph: readGraph }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
