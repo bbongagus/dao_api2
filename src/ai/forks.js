@@ -1,7 +1,7 @@
 /**
  * A fork is a task whose arrows are alternatives: the person takes one, and
- * what the others lead to is not theirs to do. Pure: who the forks are and
- * where a node's arrows lead in, what is out of the plan out.
+ * what the others lead to is not theirs to do. Pure: a level and where its
+ * arrows lead in; who the forks are and what is out of the plan out.
  *
  * - `folded`: reached only through the options not taken. Out of the count
  *   and out of view; a tick made there is kept, and is back with a change of
@@ -11,12 +11,46 @@
  *
  * Where the branches meet again is neither: that part is everyone's.
  *
- * The rule is the editor's, ported line for line from
- * graphy/stores/services/forks.js with its tests — the agent must agree with
- * the screen on what is out of the plan. Change both together.
+ * A fork is decided when the option on it is one of its arrows. Its tick
+ * (`isDone`) is set with the choice but is not what says so: the two can
+ * part — the step chosen deleted, a reset, a tick older than the second
+ * arrow — and every reader goes by the choice.
+ *
+ * The rule is the editor's: everything down to `forkSets` is
+ * graphy/stores/services/forks.js line for line, with its tests, because the
+ * agent has to agree with the screen on what a fork is and what it leaves
+ * out. Change both together. `readForks` is the server's own: it applies the
+ * rule to a stored graph.
  */
 
-export const isFork = (node) => node?.fork === true;
+const marked = (node) => node?.fork === true;
+const plainTask = (node) => node.nodeType === 'dao' && (node.children?.length ?? 0) === 0;
+
+/** Whether a level may hold a fork at all: asked before its arrows are read. */
+export const mayFork = (level) => level.some(marked);
+
+/**
+ * The forks of one level. Marking a node `fork` is asking for one; it is one
+ * when it is a task with nothing inside and at least two arrows leave it for
+ * nodes of its own level — those are its options. With one way on, or none,
+ * there is nothing to choose between, and with a level inside it is a folder:
+ * such a node is the task or folder it otherwise is, ticked like any other.
+ *
+ * @param {Array} level - the nodes of one level
+ * @param {(id: string) => string[]} next - where a node's arrows lead on this level
+ * @returns {Array<{ id: string, targets: string[], choice: string|null }>}
+ *   `choice` is the option taken — one of `targets` — or null
+ */
+export function forksOf(level, next) {
+  const forks = [];
+  for (const node of level) {
+    if (!marked(node) || !plainTask(node)) continue;
+    const targets = [...new Set(next(node.id) || [])];
+    if (targets.length < 2) continue;
+    forks.push({ id: node.id, targets, choice: targets.includes(node.choice) ? node.choice : null });
+  }
+  return forks;
+}
 
 /** The option taken: one of the fork's own arrows, or null. */
 export const choiceOf = (fork) => (fork.targets.includes(fork.choice) ? fork.choice : null);
@@ -68,24 +102,38 @@ export function forkSets(forks, next) {
 }
 
 /**
- * The same, for a stored graph. The arrows come from the link index
- * (links.js): on the server `linkedNodeIds` is almost always empty and the
- * edges are the authority.
+ * The forks of a stored graph, level by level, as the screen reads them. An
+ * arrow counts on the level whose two nodes it joins, and the arrows come
+ * from the link index (links.js): on the server `linkedNodeIds` is almost
+ * always empty and the edges are the authority.
+ *
  * @param {Array} nodes - the graph's nodes, nested through `children`
  * @param {{ downstreamOf: (id: string) => string[] }} links - buildLinkIndex(nodes, edges)
+ * @returns {{ forkOf: Map<string, { id: string, targets: string[], choice: string|null }>,
+ *   folded: Set<string>, pending: Set<string> }} every fork by its id, and
+ *   what the forks leave out of the plan
  */
-export function forkSetsOf(nodes, links) {
-  const forks = [];
-  const walk = (list) => {
-    for (const node of list || []) {
-      if (isFork(node)) {
-        forks.push({ id: node.id, choice: node.choice ?? null, targets: links.downstreamOf(node.id) });
-      }
-      walk(node.children);
+export function readForks(nodes, links) {
+  const forkOf = new Map();
+  const folded = new Set();
+  const pending = new Set();
+
+  const walk = (level) => {
+    if (!level?.length) return;
+    if (mayFork(level)) {
+      const here = new Set(level.map((node) => node.id));
+      const next = (id) => links.downstreamOf(id).filter((to) => here.has(to));
+      const forks = forksOf(level, next);
+      const sets = forkSets(forks, next);
+      for (const fork of forks) forkOf.set(fork.id, fork);
+      for (const id of sets.folded) folded.add(id);
+      for (const id of sets.pending) pending.add(id);
     }
+    for (const node of level) walk(node.children);
   };
   walk(nodes);
-  return forkSets(forks, links.downstreamOf);
+
+  return { forkOf, folded, pending };
 }
 
 export default forkSets;

@@ -11,7 +11,7 @@
 
 import { KIND_TO_TYPES, KIND_LIST, kindNameOf } from './graphReadTools.js';
 import { buildLinkIndex } from './links.js';
-import { isFork } from './forks.js';
+import { readForks } from './forks.js';
 import { compilePlan } from './planCompiler.js';
 import { projectDraft } from './graphDraft.js';
 import { validateTrackDraft } from './trackPlanCompiler.js';
@@ -48,6 +48,8 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
   // Whether two nodes are connected once what is staged so far is applied.
   // A link staged twice, or on top of one that exists, is applied twice.
   const links = buildLinkIndex(nodes, edges);
+  // Which saved nodes are forks (forks.js): a mark alone does not make one.
+  const forks = readForks(nodes, links);
   const pair = (from, to) => `${from}→${to}`;
   const stagedLinks = new Set();
   const stagedUnlinks = new Set();
@@ -302,8 +304,10 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
         }
 
         // A fork's tick is its choice: the app sets both together, and a
-        // tick without a choice would count a decision nobody made.
-        if (isFork(node)) {
+        // tick without a choice would count a decision nobody made. A saved
+        // node is a fork as the graph stands; one staged by a plan in this
+        // turn is one by construction.
+        if (found.node ? forks.forkOf.has(found.id) : minted.get(found.id).fork === true) {
           return `"${node.title}" is a fork: it is done by choosing one of its paths, in the app, and a tick cannot be put on it or taken off it here.`;
         }
 

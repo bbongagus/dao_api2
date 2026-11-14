@@ -353,10 +353,25 @@ test('inspect shows which option of a fork is taken', () => {
   );
 });
 
-test('a choice that is no longer one of the fork\'s arrows reads as none', () => {
-  const out = readTrip({ choice: 'gone' }).inspect({ alias: 'n3', depth: 1 });
+// A fork is decided by the option on it, not by its tick: the two can part
+// when the step chosen is deleted, and every reader goes by the choice.
+test('a choice that is no longer one of the fork\'s arrows reads as none, whatever its tick says', () => {
+  const read = readTrip({ choice: 'gone', isDone: true });
 
-  assert.match(out, /not chosen yet$/);
+  assert.equal(
+    read.inspect({ alias: 'n3', depth: 1 }),
+    'n3 [dao] Как едем? · n3 → n4, n6 · n2 → n3 · fork, one of: "По земле" → n4; "Купить билет на самолёт" → n6 · not chosen yet',
+  );
+  assert.equal(nestedLineOf(read.tasks({ done: false }), 'n3'), 'n3 Как едем? — in Поездка');
+  assert.equal(nestedLineOf(read.tasks({ done: true }), 'n3'), undefined);
+});
+
+test('a fork with an option taken reads as done even when its tick was lost', () => {
+  const read = readTrip({ choice: 'fly', isDone: false });
+
+  assert.match(read.inspect({ alias: 'n3', depth: 1 }), /chosen: "Купить билет на самолёт" → n6 · done$/);
+  assert.equal(nestedLineOf(read.tasks({ done: true }), 'n3'), 'n3 Как едем? — in Поездка');
+  assert.equal(nestedLineOf(read.tasks({ done: false }), 'n3'), undefined);
 });
 
 test('overview and search show a fork the same way', () => {
@@ -372,11 +387,34 @@ test('overview and search show a fork the same way', () => {
   assert.equal(read.search({ text: 'едем' }), line);
 });
 
-test('a fork with no arrows yet says so instead of listing options', () => {
-  const nodes = [n('way', 'Как едем?', { fork: true, choice: null, forkOptions: [] })];
-  const out = createReadTools(nodes, buildAliasTable(nodes)).overview();
+// The mark alone makes no fork: with nothing to choose between, the node is
+// the task it otherwise is, on the screen and here.
+test('a task marked as a fork with one way on, or none, reads as the task it is', () => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: null, forkOptions: [] }),
+    n('bus', 'Автобус'),
+    n('alone', 'Куда?', { fork: true, isDone: true }),
+  ];
+  const read = createReadTools(nodes, buildAliasTable(nodes), [{ source: 'way', target: 'bus' }]);
 
-  assert.equal(lineOf(out, 'n1'), 'n1 [dao] Как едем? · fork with no options yet');
+  assert.equal(lineOf(read.overview(), 'n1'), 'n1 [dao] Как едем? · n1 → n2');
+  assert.equal(lineOf(read.overview(), 'n3'), 'n3 [dao] Куда? · done');
+});
+
+test('a marked task whose arrows lead into another level is a task: its tick is its own', () => {
+  const nodes = [
+    n('way', 'Как едем?', { fork: true, choice: 'bus', isDone: false }),
+    n('ways', 'Способы', { nodeType: 'fundamental', nodeSubtype: 'category', children: [n('bus', 'Автобус'), n('fly', 'Самолёт')] }),
+  ];
+  const read = createReadTools(nodes, buildAliasTable(nodes), [{ source: 'way', target: 'bus' }, { source: 'way', target: 'fly' }]);
+
+  assert.equal(lineOf(read.overview(), 'n1'), 'n1 [dao] Как едем? · n1 → n3, n4');
+  assert.equal(read.tasks({ done: false }), [
+    '3 task(s) still to do. Match what the person said by meaning, not by the words.',
+    'n1 Как едем?',
+    'n3 Автобус — in Способы',
+    'n4 Самолёт — in Способы',
+  ].join('\n'));
 });
 
 test('the steps around a fork read exactly as any other task', () => {

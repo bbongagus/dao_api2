@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { forkSets, forkSetsOf } from './forks.js';
+import { forkSets, forksOf, mayFork, readForks } from './forks.js';
 import { buildLinkIndex } from './links.js';
 
 const walker = (arrows) => (id) => arrows[id] || [];
@@ -80,35 +80,119 @@ test('survives arrows that run in a circle', () => {
   assert.deepEqual(sorted(folded), ['a1']);
 });
 
-// --- a stored graph: the forks are nodes, and the arrows are its edges
+// Marked `fork` is what the person asked for; whether the node is a fork is
+// read off its level: a task with nothing inside and at least two ways on.
+{
+  const task = (id, extra = {}) => ({ id, nodeType: 'dao', nodeSubtype: 'simple', children: [], ...extra });
+  const fork = (extra = {}) => task('F', { fork: true, choice: null, ...extra });
+  const TWO = { F: ['a1', 'b1'] };
+  const level = (first, ...rest) => [first, task('a1'), task('b1'), ...rest];
+
+  test('forksOf: a marked task with two arrows on its level is a fork, and its targets are the options', () => {
+    assert.deepEqual(forksOf(level(fork()), walker(TWO)), [{ id: 'F', targets: ['a1', 'b1'], choice: null }]);
+  });
+
+  test('forksOf: carries the option taken when it is one of the arrows, and none when it is not', () => {
+    assert.equal(forksOf(level(fork({ choice: 'b1' })), walker(TWO))[0].choice, 'b1');
+    assert.equal(forksOf(level(fork({ choice: 'deleted-node' })), walker(TWO))[0].choice, null);
+  });
+
+  test('forksOf: no fork with one way on, or none: there is nothing to choose between', () => {
+    assert.deepEqual(forksOf(level(fork()), walker({ F: ['a1'] })), []);
+    assert.deepEqual(forksOf(level(fork()), walker({})), []);
+  });
+
+  test('forksOf: two arrows to one node are one way on', () => {
+    assert.deepEqual(forksOf(level(fork()), walker({ F: ['a1', 'a1'] })), []);
+  });
+
+  test('forksOf: no fork with contents: a task that holds a level is a folder', () => {
+    assert.deepEqual(forksOf(level(fork({ nodeSubtype: 'withChildren', children: [task('x')] })), walker(TWO)), []);
+  });
+
+  test('forksOf: no fork as a Group, a Track or a Milestone', () => {
+    const marked = (nodeSubtype) => fork({ nodeType: 'fundamental', nodeSubtype });
+    for (const subtype of ['category', 'downstream', 'upstream']) {
+      assert.deepEqual(forksOf(level(marked(subtype)), walker(TWO)), []);
+    }
+  });
+
+  test('forksOf: no fork without the mark, whatever its arrows', () => {
+    assert.deepEqual(forksOf(level(task('F')), walker(TWO)), []);
+  });
+
+  test('mayFork says cheaply whether a level may hold one at all', () => {
+    assert.equal(mayFork(level(fork())), true);
+    assert.equal(mayFork(level(task('F'))), false);
+    assert.equal(mayFork([]), false);
+  });
+}
+
+// --- a stored graph: its forks are read level by level, and the arrows are
+// its edges (links.js) - on the server `linkedNodeIds` is almost always empty.
 
 const task = (id, extra = {}) => ({ id, title: id, nodeType: 'dao', nodeSubtype: 'simple', children: [], ...extra });
+const group = (id, children) => ({ ...task(id), nodeType: 'fundamental', nodeSubtype: 'category', children });
 // Inside a Group: F ─ a1 ─ a2 ─┬─ join
 //                   └ b1 ──────┘
-const stored = (fork) => [{
-  ...task('G'), nodeType: 'fundamental', nodeSubtype: 'category',
-  children: [task('F', fork), task('a1'), task('a2'), task('b1'), task('join')],
-}];
+const stored = (fork) => [group('G', [task('F', fork), task('a1'), task('a2'), task('b1'), task('join')])];
 const arrows = [
   { source: 'F', target: 'a1' }, { source: 'a1', target: 'a2' }, { source: 'a2', target: 'join' },
   { source: 'F', target: 'b1' }, { source: 'b1', target: 'join' },
 ];
-const setsOf = (nodes, edges) => forkSetsOf(nodes, buildLinkIndex(nodes, edges));
+const read = (nodes, edges) => readForks(nodes, buildLinkIndex(nodes, edges));
 
-test('a stored fork is read from the graph edges, wherever it is nested', () => {
-  const { folded, pending } = setsOf(stored({ fork: true, choice: 'b1' }), arrows);
+test('a stored fork is read from the graph edges, on the level it sits on', () => {
+  const { forkOf, folded, pending } = read(stored({ fork: true, choice: 'b1' }), arrows);
+
+  assert.deepEqual([...forkOf], [['F', { id: 'F', targets: ['a1', 'b1'], choice: 'b1' }]]);
   assert.deepEqual(sorted(folded), ['a1', 'a2']);
   assert.deepEqual(sorted(pending), []);
 });
 
 test('a stored fork with no choice field yet holds its branches pending', () => {
-  const { folded, pending } = setsOf(stored({ fork: true }), arrows);
+  const { forkOf, folded, pending } = read(stored({ fork: true }), arrows);
+
+  assert.equal(forkOf.get('F').choice, null);
   assert.deepEqual(sorted(folded), []);
   assert.deepEqual(sorted(pending), ['a1', 'a2', 'b1']);
 });
 
-test('a task that is not a fork leaves everything in the plan, whatever its choice says', () => {
-  const { folded, pending } = setsOf(stored({ choice: 'b1' }), arrows);
+test('a task that is not marked is no fork and leaves everything in the plan, whatever its choice says', () => {
+  const { forkOf, folded, pending } = read(stored({ choice: 'b1' }), arrows);
+
+  assert.equal(forkOf.size, 0);
   assert.deepEqual(sorted(folded), []);
   assert.deepEqual(sorted(pending), []);
+});
+
+test('a marked task whose arrows lead into another level is no fork: no option is on its own', () => {
+  const nodes = [task('F', { fork: true, choice: 'a1' }), group('H', [task('a1'), task('b1')])];
+  const { forkOf, folded } = read(nodes, [{ source: 'F', target: 'a1' }, { source: 'F', target: 'b1' }]);
+
+  assert.equal(forkOf.size, 0);
+  assert.deepEqual(sorted(folded), []);
+});
+
+test('a marked task left with one way on is a task again, and folds nothing', () => {
+  const { forkOf, folded, pending } = read(stored({ fork: true, choice: 'a1' }), arrows.slice(0, 3));
+
+  assert.equal(forkOf.size, 0);
+  assert.deepEqual(sorted(folded), []);
+  assert.deepEqual(sorted(pending), []);
+});
+
+test('forks on different levels are each read on their own', () => {
+  const nodes = [
+    task('F', { fork: true, choice: 'x' }), task('x'), task('y'),
+    group('G', [task('K', { fork: true }), task('k1'), task('k2')]),
+  ];
+  const { forkOf, folded, pending } = read(nodes, [
+    { source: 'F', target: 'x' }, { source: 'F', target: 'y' },
+    { source: 'K', target: 'k1' }, { source: 'K', target: 'k2' },
+  ]);
+
+  assert.deepEqual(sorted(forkOf.keys()), ['F', 'K']);
+  assert.deepEqual(sorted(folded), ['y']);
+  assert.deepEqual(sorted(pending), ['k1', 'k2']);
 });

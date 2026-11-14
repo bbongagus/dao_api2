@@ -672,6 +672,16 @@ test('the steps a fork leads to are ticked like any other task', () => {
   assert.deepEqual(staged, [{ op: 'done', target: 'bus', isDone: true }]);
 });
 
+// The mark alone makes no fork: with one way on there is nothing to choose
+// between, and the app ticks such a task like any other.
+test('a task marked as a fork that offers no choice is ticked like any other', () => {
+  const nodes = [n('way', 'Как едем?', { fork: true, choice: null }), n('bus', 'Автобус')];
+  const { tools, staged } = createWriteTools(nodes, buildAliasTable(nodes), [{ source: 'way', target: 'bus' }]);
+
+  assert.match(tools.markDone({ target: 'n1', done: true }), /^Staged:/);
+  assert.deepEqual(staged, [{ op: 'done', target: 'way', isDone: true }]);
+});
+
 test('markDone asks for a yes or no rather than guessing one', () => {
   const { tools, staged } = onDay();
 

@@ -14,7 +14,7 @@
  */
 
 import { buildLinkIndex } from './links.js';
-import { forkSetsOf, isFork } from './forks.js';
+import { readForks } from './forks.js';
 
 const SHORT_DESCRIPTION = 120;
 const TASKS_CAP = 300;
@@ -54,6 +54,14 @@ const countDescendants = (node) => {
 
 export function createReadTools(nodes, aliases, edges = []) {
   const links = buildLinkIndex(nodes, edges);
+  // Who is a fork, and what the forks leave out of the plan (forks.js). A
+  // fork is decided by the option taken at it, not by its tick; anything
+  // else is done when it is ticked.
+  const forks = readForks(nodes, links);
+  const isDone = (node) => {
+    const fork = forks.forkOf.get(node.id);
+    return fork ? fork.choice !== null : Boolean(node.isDone);
+  };
 
   const line = (entry, { description, indent = 0 }) => {
     const { alias, node } = entry;
@@ -75,19 +83,15 @@ export function createReadTools(nodes, aliases, edges = []) {
     // A fork's arrows are alternatives: what each is called, where it leads,
     // and which one the person took. An option the fork does not name is
     // named by the step it leads to.
-    if (isFork(node)) {
-      const options = links.downstreamOf(node.id).filter((id) => aliases.aliasOf(id));
+    const fork = forks.forkOf.get(node.id);
+    if (fork) {
       const labels = new Map((Array.isArray(node.forkOptions) ? node.forkOptions : []).map((o) => [o?.target, o?.label]));
       const option = (id) => `"${labels.get(id) || aliases.nodeAt(aliases.aliasOf(id)).title}" → ${aliases.aliasOf(id)}`;
-      if (options.length === 0) {
-        parts.push('fork with no options yet');
-      } else {
-        parts.push(`fork, one of: ${options.map(option).join('; ')}`);
-        parts.push(options.includes(node.choice) ? `chosen: ${option(node.choice)}` : 'not chosen yet');
-      }
+      parts.push(`fork, one of: ${fork.targets.map(option).join('; ')}`);
+      parts.push(fork.choice ? `chosen: ${option(fork.choice)}` : 'not chosen yet');
     }
 
-    if (node.isDone) parts.push('done');
+    if (isDone(node)) parts.push('done');
 
     const text = description === 'full' ? node.description : shorten(node.description);
     if (text) parts.push(`"${text}"`);
@@ -189,10 +193,9 @@ export function createReadTools(nodes, aliases, edges = []) {
       // What a fork has folded - the paths not taken, with whatever is nested
       // in their steps - is out of the plan, so it is not offered. A path
       // nobody has chosen yet stays: it may turn out to be the work.
-      const { folded } = forkSetsOf(nodes, links);
       const foldedAway = (entry) => {
         for (let e = entry; e; e = e.parentAlias ? aliases.entryAt(e.parentAlias) : null) {
-          if (folded.has(e.node.id)) return true;
+          if (forks.folded.has(e.node.id)) return true;
         }
         return false;
       };
@@ -202,7 +205,7 @@ export function createReadTools(nodes, aliases, edges = []) {
       // their place.
       const hits = aliases.all.filter((entry) =>
         kindNameOf(entry.node) === 'dao' && !entry.node.children?.length
-        && Boolean(entry.node.isDone) === wanted && !foldedAway(entry)
+        && isDone(entry.node) === wanted && !foldedAway(entry)
       );
       if (hits.length === 0) {
         return wanted ? 'No task is marked done.' : 'Every task is done; none is still to do.';
