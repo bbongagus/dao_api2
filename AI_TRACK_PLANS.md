@@ -83,3 +83,40 @@ fell from 4675 to 1588 pixels, with identical coordinates on the second tidy.
 Final checks: backend 498 passed / 15 Redis-dependent skipped; frontend 799
 passed / 91 suites, production build passed (existing chunk-size warning).
 No production graph writes or deployment in this correction.
+
+## Forks in a plan (local `feat/forks`, 2026-11-15, not deployed)
+
+`plan_path` takes an optional `forks` list beside `stages`:
+
+```js
+forks: [{
+  id, title, description,
+  after: ['<stage id>', ...],                       // the stages the choice waits for
+  options: [{ stage: '<stage id>', label, hint }],  // at least two; each starts with its own stage
+}]
+```
+
+A fork is a task whose arrows are alternatives: the person takes one path in
+the app, and what only the others lead to is out of the plan. Each fork
+compiles to one `add` on the plan's level — alias `plan:<fork id>`, marked
+`fork: true`, with `forkOptions: [{ target, label, hint }]` naming the single
+first step of each option's stage. The Milestones of the stages in `after`
+point at it; it points at those first steps. Both layouts take forks.
+
+Refused, each with a sentence the model can act on: fewer than two options;
+two options starting with the same stage; a stage starting options of two
+forks; an option's stage with more than one first step; `sequence: true`
+with a fork; a fork after a fork; an existing node marked `fork` reused in a
+Track restructure.
+
+The server compiles a fork only when the chat request says
+`applies: ['fork']`: an app from before forks would add it as a plain task
+and every option as work to do. `src/ai/forks.js` is the editor's rule,
+ported byte for byte (`graphy/stores/services/forks.js`), plus `readForks`:
+what a fork is and what it folds must be the same on the screen and in what
+the agent reads. `inspect`, `overview` and `search` say `fork, one of: …`;
+`tasks` leaves out what is folded; `mark_done` refuses a fork.
+
+Not measured: whether a live model uses `forks` when it should. No paid run
+was made; `eval-graph-builder.js` sends no `applies` and so cannot exercise
+it, and `graphShape.js`'s `doubleCounted` would flag every fork.
