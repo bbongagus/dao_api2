@@ -540,6 +540,74 @@ test('a plan can use a Group staged in this turn', () => {
   assert.ok(staged.some(o => o.op === 'add' && o.parent === 'remont'));
 });
 
+test('what a plan without forks answers is unchanged', () => {
+  const { tools } = make();
+
+  assert.equal(
+    tools.plan(move),
+    'Staged: a plan of 2 stage(s), 6 node(s) and 4 arrow(s). Can start now: "Найти работодателя". Task references for work the person already completed: plan:visa:find "Найти работодателя"; plan:visa:apply "Подать на визу"; plan:there:tickets "Купить билеты".',
+  );
+});
+
+// --- plan_path with a fork: alternatives, of which the person takes one ---
+
+// [Как едем?] ─ автобус ─┬─ На месте
+//             └ самолёт ─┘
+const journey = {
+  section: '', sectionTitle: 'Поездка', sectionDescription: '',
+  stages: [
+    { id: 'bus', title: 'Доехали автобусом', description: '', after: [], steps: [step('ticket', 'Купить билет на автобус')] },
+    { id: 'fly', title: 'Долетели', description: '', after: [], steps: [step('flight', 'Купить билет на самолёт')] },
+    { id: 'there', title: 'На месте', description: '', after: ['bus', 'fly'], steps: [step('checkin', 'Заселиться')] },
+  ],
+  forks: [{
+    id: 'way', title: 'Как едем?', description: '', after: [],
+    options: [{ stage: 'bus', label: 'Автобусом', hint: '' }, { stage: 'fly', label: 'Самолётом', hint: '' }],
+  }],
+};
+
+test('a plan with a fork names the fork, and does not offer it as a task to tick', () => {
+  const { tools, staged } = make();
+
+  assert.equal(
+    tools.plan(journey),
+    'Staged: a plan of 3 stage(s), 8 node(s) and 7 arrow(s). Can start now: "Как едем?". Forks, where the person chooses one path in the app: plan:way "Как едем?" (2 options). Task references for work the person already completed: plan:bus:ticket "Купить билет на автобус"; plan:fly:flight "Купить билет на самолёт"; plan:there:checkin "Заселиться".',
+  );
+  const fork = staged.find((o) => o.alias === 'plan:way');
+  assert.equal(fork.fork, true);
+  assert.equal(fork.plan, true);
+  assert.deepEqual(fork.forkOptions, [
+    { target: 'plan:bus:ticket', label: 'Автобусом', hint: '' },
+    { target: 'plan:fly:flight', label: 'Самолётом', hint: '' },
+  ]);
+});
+
+test('a fork staged by a plan cannot be marked done in the same turn; the steps of its options can', () => {
+  const { tools, staged } = make();
+  tools.plan(journey);
+  const before = staged.length;
+
+  assert.equal(
+    tools.markDone({ target: 'plan:way', done: true }),
+    '"Как едем?" is a fork: it is done by choosing one of its paths, in the app, and a tick cannot be put on it or taken off it here.',
+  );
+  assert.equal(staged.length, before);
+  assert.match(tools.markDone({ target: 'plan:bus:ticket', done: true }), /^Staged:/);
+});
+
+test('a refused fork stages nothing, and a corrected plan replaces the one staged before', () => {
+  const { tools, staged } = make();
+
+  const said = tools.plan({ ...journey, forks: [{ ...journey.forks[0], options: journey.forks[0].options.slice(0, 1) }] });
+  assert.match(said, /fewer than two options/);
+  assert.equal(staged.length, 0);
+
+  tools.plan(move);
+  assert.match(tools.plan(journey), /It replaces the plan staged earlier in this turn\./);
+  assert.equal(staged.filter((o) => o.op === 'add' && o.fork === true).length, 1);
+  assert.equal(staged.some((o) => o.alias === 'plan:visa'), false);
+});
+
 // --- markDone: the person says they did something, and the task is ticked. ---
 
 const day = [

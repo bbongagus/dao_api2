@@ -416,10 +416,15 @@ export function createWriteTools(nodes, aliases, edges = [], { canMove = true } 
           ? ` Can start now: ${compiled.startNow.map((title) => `"${title}"`).join(', ')}.`
           : '';
         const replaced = earlier.length ? ' It replaces the plan staged earlier in this turn.' : '';
-        const taskRefs = compiled.operations.filter((op) => op.op === 'add' && op.nodeType === 'dao'
+        // A fork is not ticked, so it is named apart from the tasks that can be.
+        const forkAdds = compiled.operations.filter((op) => op.op === 'add' && op.fork === true);
+        const forked = forkAdds.length
+          ? ` Forks, where the person chooses one path in the app: ${forkAdds.map((op) => `${op.alias} "${op.title}" (${op.forkOptions.length} options)`).join('; ')}.`
+          : '';
+        const taskRefs = compiled.operations.filter((op) => op.op === 'add' && op.nodeType === 'dao' && op.fork !== true
           && !compiled.operations.some((child) => child.op === 'add' && child.parent === op.alias))
           .map((op) => `${op.alias} "${op.title}"`).join('; ');
-        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}${replaced} Task references for work the person already completed: ${taskRefs}.`;
+        return `Staged: a plan of ${compiled.stats.stages} stage(s), ${compiled.stats.nodes} node(s) and ${compiled.stats.links} arrow(s).${now}${replaced}${forked} Task references for work the person already completed: ${taskRefs}.`;
       },
     },
   };
