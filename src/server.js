@@ -203,9 +203,10 @@ app.use('/api', setupOnboardingRoutes({ redis }));
 // A published plan (sharedRoutes.js) is read by anyone who has its link:
 // outside /api, so no token is asked for. Publishing reads the stored graph
 // as it is — readGraph, not getGraph, whose NodeIndex belongs to the
-// operation queue.
+// operation queue — and takes its turn in that queue, so the copy is never
+// of an operation half applied.
 app.use('/shared', setupSharedReadRoutes({ redis }));
-app.use('/api', setupSharedRoutes({ redis, getGraph: readGraph }));
+app.use('/api', setupSharedRoutes({ redis, getGraph: readGraph, graphQueue }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

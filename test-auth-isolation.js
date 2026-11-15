@@ -11,6 +11,10 @@
  * byte-for-byte the same afterwards. Then A edits their graph for real, and
  * the change must reach A's other tab and never B.
  *
+ * And a plan published as a page (src/routes/sharedRoutes.js): publishing,
+ * listing and taking down are the owner's alone; the page itself is read by
+ * anyone, and holds the plan and nothing beside it.
+ *
  * Tokens are signed with the local dev key, so the server must trust that key.
  * Every broadcast used to match on graphId alone, and every graph is "main":
  * this began as the test that caught one user's node titles reaching another.
@@ -33,6 +37,10 @@ const USER_A = `isolation-a-${stamp}`;
 const USER_B = `isolation-b-${stamp}`;
 const SECRET = `private line of user A ${stamp}`;
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+
+// Pages this run publishes: their keys do not name a user, so the sweep at
+// the end would miss them.
+const published = [];
 
 let failures = 0;
 const check = (cond, msg) => {
@@ -190,6 +198,58 @@ async function main() {
     'B receives nothing of it'
   );
   [aTab1, aTab2, bTab].forEach((ws) => ws.close());
+
+  console.log('\nPublished pages');
+  // A second graph of A's: a plan to publish, and beside it a goal that stays private.
+  const PLAN = `plan-${stamp}`;
+  const node = (id, title, extra = {}) => ({
+    id, title, nodeType: 'dao', nodeSubtype: 'simple', isDone: true, position: { x: 0, y: 0 },
+    children: [], linkedNodeIds: {}, ...extra,
+  });
+  await redis.set(`user:${USER_A}:graph:pub`, JSON.stringify({
+    nodes: [
+      node(PLAN, `a plan A publishes ${stamp}`, { nodeType: 'fundamental', nodeSubtype: 'category', children: [node(`step-${stamp}`, 'a step')] }),
+      node(`private-${stamp}`, SECRET),
+    ],
+    edges: [{ id: `out-${stamp}`, source: `step-${stamp}`, target: `private-${stamp}`, type: 'floating', direction: 'downstream' }],
+    viewport: { x: 0, y: 0, zoom: 1 }, version: 1, userId: USER_A,
+  }));
+
+  for (const [name, token] of refused) {
+    const publish = await request('POST', '/api/graphs/pub/shares', { token, headers: { 'x-user-id': USER_A }, body: { nodeId: PLAN } });
+    check(publish.status === 401, `publishing with ${name}: 401`);
+    const list = await request('GET', '/api/graphs/pub/shares', { token, headers: { 'x-user-id': USER_A } });
+    check(list.status === 401 && !list.text.includes(PLAN), `listing pages with ${name}: 401`);
+  }
+
+  const bPublishesA = await request('POST', '/api/graphs/pub/shares', { token: tokenB, headers: { 'x-user-id': USER_A }, body: { nodeId: PLAN, userId: USER_A } });
+  check(bPublishesA.status === 404, "B publishing A's plan by its id: 404, it is not in B's graph");
+
+  const publishedByA = await request('POST', '/api/graphs/pub/shares', { token: tokenA, body: { nodeId: PLAN } });
+  const slug = publishedByA.status === 200 ? JSON.parse(publishedByA.text).slug : null;
+  check(Boolean(slug) && /^[A-Za-z0-9_-]{12}$/.test(slug), 'A publishes their plan and gets a link name');
+  if (slug) {
+    published.push(slug);
+    const page = await request('GET', `/shared/${slug}`);
+    check(page.status === 200 && page.text.includes(`a plan A publishes ${stamp}`), 'anyone reads the page, with no token');
+    check(
+      !page.text.includes(SECRET) && !page.text.includes(`private-${stamp}`) && !page.text.includes(USER_A) && !page.text.includes('"isDone":true'),
+      "the page holds the plan alone: not A's other goal, not the arrow to it, not A's name, not A's ticks"
+    );
+
+    const bList = await request('GET', '/api/graphs/pub/shares', { token: tokenB });
+    check(bList.status === 200 && !bList.text.includes(slug), "B's list of pages has nothing of A's");
+    const bTakesDown = await request('DELETE', `/api/shares/${slug}`, { token: tokenB });
+    check(bTakesDown.status === 404, "B taking A's page down: 404");
+    const noToken = await request('DELETE', `/api/shares/${slug}`);
+    check(noToken.status === 401, 'taking a page down without a token: 401');
+    check((await request('GET', `/shared/${slug}`)).status === 200, "A's page is still there after both");
+
+    const aTakesDown = await request('DELETE', `/api/shares/${slug}`, { token: tokenA });
+    check(aTakesDown.status === 200, 'A takes their own page down');
+    check((await request('GET', `/shared/${slug}`)).status === 404, 'and the link stops working');
+  }
+  check((await request('GET', '/shared/..%2F..%2Fuser')).status === 404, 'an address that is no page: 404');
 }
 
 try {
@@ -203,6 +263,7 @@ try {
   for (const user of [USER_A, USER_B]) {
     for await (const batch of redis.scanStream({ match: `*${user}*`, count: 200 })) keys.push(...batch);
   }
+  for (const slug of published) keys.push(`shared:${slug}`, `shared:${slug}:owner`);
   if (keys.length) await redis.del(...keys);
   redis.disconnect();
 }
