@@ -34,7 +34,13 @@ function serve(t, { ledger, runAgent, journal, getGraph, provider } = {}) {
 const allowingLedger = (calls) => ({
   check: async () => ({ allowed: true, user: 2, global: 25, userQuota: 2, globalCap: 25, period: '2026-09' }),
   remaining: async () => ({ user: 2, global: 25, userQuota: 2, globalCap: 25, period: '2026-09' }),
-  record: async (userId, dollars) => { calls.recorded.push({ userId, dollars }); },
+  // It takes a moment, as Redis does. The route records the spend after it
+  // has answered; a test that reads it without waiting (see `turn`) then
+  // fails every time, rather than once in ten runs on a busy machine.
+  record: async (userId, dollars) => {
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    calls.recorded.push({ userId, dollars });
+  },
 });
 
 const refusingLedger = (scope) => ({
@@ -49,6 +55,24 @@ const chat = (url, body = { messages: [{ role: 'user', content: 'привет' }
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+
+/**
+ * A whole turn: the request, its answer, and what the route does once it has
+ * answered — the spend recorded, the person's turn released, the journal
+ * entry written, in that order. The answer ends before any of that, so a test
+ * that reads what a turn left behind, or sends the next one, waits for the
+ * last of them. For the route as `serve` wires it: its journal is the stub.
+ */
+const turn = async (calls, url, body) => {
+  const before = calls.journalled.length;
+  const response = await chat(url, body);
+  const text = await response.text();
+  for (let i = 0; i < 2000 && calls.journalled.length === before; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  assert.ok(calls.journalled.length > before, 'the turn was never journalled');
+  return { response, text };
+};
 
 /** A configured provider on a priced model; nothing real is ever called. */
 const aProvider = (overrides = {}) => ({
@@ -84,8 +108,7 @@ test('the global cap refuses too, and says it was the cap', async (t) => {
 test('a turn within quota runs, and what it cost is charged to the user', async (t) => {
   const { calls, url } = serve(t);
 
-  const response = await chat(url);
-  await response.text();
+  const { response } = await turn(calls, url);
 
   assert.equal(response.status, 200);
   assert.equal(calls.agent, 1);
@@ -95,7 +118,7 @@ test('a turn within quota runs, and what it cost is charged to the user', async 
 test('the journal records what the turn cost, not just how long it took', async (t) => {
   const { calls, url } = serve(t);
 
-  await (await chat(url)).text();
+  await turn(calls, url);
 
   const [, , entry] = calls.journalled[0];
   assert.equal(entry.kind, 'agent_turn');
@@ -110,37 +133,37 @@ test('a ramp turn reaches the agent as one, and the journal says which it was', 
     runAgent: async (params) => { given = params; return { type: 'text', message: 'Что именно?', usage: { calls: 1, dollars: 0.01 } }; },
   });
 
-  await (await chat(url, { messages: [{ role: 'user', content: 'хочу накачаться' }], mode: 'ramp' })).text();
+  await turn(calls, url, { messages: [{ role: 'user', content: 'хочу накачаться' }], mode: 'ramp' });
   assert.equal(given.mode, 'ramp');
   assert.equal(calls.journalled[0][2].mode, 'ramp');
 
-  await (await chat(url)).text();
+  await turn(calls, url);
   assert.equal(given.mode, undefined);
 });
 
 test('only an app that says it can apply a move is given one', async (t) => {
   let given = null;
-  const { url } = serve(t, {
+  const { calls, url } = serve(t, {
     runAgent: async (params) => { given = params; return { type: 'text', message: 'Ок', usage: { calls: 1, dollars: 0.01 } }; },
   });
 
-  await (await chat(url, { messages: [{ role: 'user', content: 'вынеси пункты' }], applies: ['move', 'something-later'] })).text();
+  await turn(calls, url, { messages: [{ role: 'user', content: 'вынеси пункты' }], applies: ['move', 'something-later'] });
   assert.equal(given.canMove, true);
 
-  await (await chat(url)).text();
+  await turn(calls, url);
   assert.equal(given.canMove, false, 'a tab from before moves would skip one and still apply a delete after it');
 });
 
 test('only an app that says it can apply a fork is given one', async (t) => {
   let given = null;
-  const { url } = serve(t, {
+  const { calls, url } = serve(t, {
     runAgent: async (params) => { given = params; return { type: 'text', message: 'Ок', usage: { calls: 1, dollars: 0.01 } }; },
   });
 
-  await (await chat(url, { messages: [{ role: 'user', content: 'составь план' }], applies: ['move', 'fork'] })).text();
+  await turn(calls, url, { messages: [{ role: 'user', content: 'составь план' }], applies: ['move', 'fork'] });
   assert.equal(given.canFork, true);
 
-  await (await chat(url, { messages: [{ role: 'user', content: 'составь план' }], applies: ['move'] })).text();
+  await turn(calls, url, { messages: [{ role: 'user', content: 'составь план' }], applies: ['move'] });
   assert.equal(given.canFork, false, 'a tab from before forks would add one as a plain task, and every option as work to do');
 });
 
@@ -149,7 +172,7 @@ test('a turn that failed is still charged for the calls it made', async (t) => {
     runAgent: async () => ({ type: 'error', message: 'rate limited', usage: { calls: 1, dollars: 0.01 } }),
   });
 
-  await (await chat(url)).text();
+  await turn(calls, url);
 
   assert.deepEqual(calls.recorded, [{ userId: 'someone', dollars: 0.01 }]);
 });
@@ -185,7 +208,7 @@ test('the agent is handed the provider the route resolved', async (t) => {
   const provider = aProvider({ model: 'z-ai/glm-5.3-flash', extraBody: { provider: { only: ['deepinfra'] } } });
   const { calls, url } = serve(t, { provider: () => provider });
 
-  await (await chat(url)).text();
+  await turn(calls, url);
 
   assert.equal(calls.agentParams.provider, provider);
   assert.equal(calls.journalled[0][2].model, 'z-ai/glm-5.3-flash');
@@ -282,9 +305,11 @@ test('one turn at a time per person — a second is refused while the first runs
 });
 
 test('the next turn is allowed once the first has finished', async (t) => {
-  const { url } = serve(t);
+  const { calls, url } = serve(t);
 
-  await (await chat(url)).text();
+  // Finished, not merely answered: the person's turn is released after the
+  // spend is recorded, which is after the answer has ended.
+  await turn(calls, url);
   const second = await chat(url);
 
   assert.equal(second.status, 200);
